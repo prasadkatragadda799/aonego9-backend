@@ -61,7 +61,7 @@ async def register_vendor(body: RegisterVendorRequest, db: AsyncSession = Depend
         city=body.city,
         category=body.category,
         password_hash=hash_password(body.password),
-        status=ApprovalStatus.pending,
+        status=ApprovalStatus.approved,  # auto-approve for demo; admin can suspend later
     )
     db.add(vendor)
     await db.commit()

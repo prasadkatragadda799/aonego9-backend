@@ -1,13 +1,16 @@
 import random
 import string
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.models.booking import Booking, BookingSource, BookingStatus
 from app.models.cms import Category
 from app.models.event import EventStatus, PlatformEvent
-from app.models.user import ApprovalStatus
+from app.models.notification import IconKind, Notification
+from app.models.user import ApprovalStatus, User
 from app.models.vendor import Vendor
 from app.schemas.browse import BrowseCategoryOut, InquiryCreate, InquiryOut, TickerItem
 from app.schemas.vendor import VendorPublicOut
@@ -53,7 +56,9 @@ async def browse_listings(
     if category:
         q = q.where(Vendor.category.ilike(f"%{category}%"))
     if city:
-        q = q.where(Vendor.city == city)
+        # Include vendors in the requested city OR vendors with no city set (pan-India)
+        from sqlalchemy import or_
+        q = q.where(or_(Vendor.city.ilike(f"%{city}%"), Vendor.city == "", Vendor.city.is_(None)))
     result = await db.execute(q.offset((page - 1) * page_size).limit(page_size))
     return result.scalars().all()
 
@@ -82,13 +87,67 @@ async def get_ticker(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/inquiry", response_model=InquiryOut, status_code=201)
-async def submit_inquiry(body: InquiryCreate):
+async def submit_inquiry(body: InquiryCreate, db: AsyncSession = Depends(get_db)):
     """
-    Stateless inquiry submission — the Flutter app generates the AO9-XXXXXX ref
-    client-side and passes it here. The backend records it and forwards a
-    booking-request notification to the vendor (notification creation omitted
-    here; wire it to your notification service).
+    Persists the inquiry as a Booking (status=requested, source=inquiry) and
+    creates a Notification for the vendor. The AO9-XXXXXX ref is generated
+    client-side so it appears immediately in the user app before the round-trip.
     """
+    # Resolve vendor — fall back gracefully if vendor_id is unknown
+    vendor_result = await db.execute(select(Vendor).where(Vendor.id == body.vendor_id))
+    vendor = vendor_result.scalar_one_or_none()
+
+    # Resolve or create a guest user record for the inquirer
+    user_result = await db.execute(select(User).where(User.email == body.email))
+    user = user_result.scalar_one_or_none()
+    if not user:
+        from app.core.security import hash_password
+        import uuid
+        user = User(
+            id=f"U-{uuid.uuid4().hex[:8].upper()}",
+            name=body.name,
+            email=body.email,
+            phone=body.phone,
+            password_hash=hash_password(uuid.uuid4().hex),  # random — guest account
+            status=ApprovalStatus.approved,
+        )
+        db.add(user)
+        await db.flush()
+
+    # Parse preferred date — default to 7 days from now
+    try:
+        preferred_date = datetime.fromisoformat(body.date)
+    except (ValueError, TypeError):
+        preferred_date = datetime.now(timezone.utc) + timedelta(days=7)
+
+    # Create the Booking record
+    booking = Booking(
+        client_id=user.id,
+        vendor_id=body.vendor_id if vendor else body.vendor_id,
+        service=f"{body.category} — {body.message[:80]}" if body.message else body.category,
+        date=preferred_date,
+        amount=0.0,
+        status=BookingStatus.requested,
+        source=BookingSource.inquiry,
+        inquiry_ref=body.inquiry_ref,
+        location=body.phone,  # store phone in location for guest users
+        notes=body.message,
+    )
+    db.add(booking)
+
+    # Notify the vendor
+    if vendor:
+        notif = Notification(
+            vendor_id=body.vendor_id,
+            title="New inquiry received",
+            body=f"{body.name} sent an inquiry ({body.inquiry_ref}){' — URGENT' if body.urgent else ''}",
+            kind=IconKind.booking,
+            unread=True,
+        )
+        db.add(notif)
+
+    await db.commit()
+
     return InquiryOut(
         inquiry_ref=body.inquiry_ref,
         vendor_id=body.vendor_id,

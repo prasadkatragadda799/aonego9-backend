@@ -52,6 +52,18 @@ async def get_vendor_public(vendor_id: str, db: AsyncSession = Depends(get_db)):
     return vendor
 
 
+@router.get("/public/{vendor_id}/packages", response_model=list[ServicePackageOut])
+async def get_vendor_packages_public(vendor_id: str, db: AsyncSession = Depends(get_db)):
+    """Active packages for a vendor — shown on the vendor's public profile in the user app."""
+    result = await db.execute(
+        select(ServicePackage).where(
+            ServicePackage.vendor_id == vendor_id,
+            ServicePackage.active == True,
+        )
+    )
+    return result.scalars().all()
+
+
 # ── Vendor self-service ──────────────────────────────────────
 
 @router.get("/me", response_model=VendorOut)
