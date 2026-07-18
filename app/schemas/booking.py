@@ -5,7 +5,9 @@ from pydantic import BaseModel
 class BookingOut(BaseModel):
     id: str
     client_id: str
+    client_name: str = ""
     vendor_id: str
+    vendor_name: str = ""
     service: str
     package_id: str | None
     date: datetime

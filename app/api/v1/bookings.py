@@ -28,11 +28,13 @@ _VALID_STATUS_TRANSITIONS: dict[BookingStatus, list[BookingStatus]] = {
 }
 
 
-def _to_out(b: Booking) -> BookingOut:
+def _to_out(b: Booking, client_name: str = "", vendor_name: str = "") -> BookingOut:
     return BookingOut(
         id=b.id,
         client_id=b.client_id,
+        client_name=client_name,
         vendor_id=b.vendor_id,
+        vendor_name=vendor_name,
         service=b.service,
         package_id=b.package_id,
         date=b.date,
@@ -46,6 +48,21 @@ def _to_out(b: Booking) -> BookingOut:
         notes=b.notes,
         created_at=b.created_at,
     )
+
+
+async def _name_lookups(db: AsyncSession, bookings: list[Booking]) -> tuple[dict[str, str], dict[str, str]]:
+    """Batch-resolve client/vendor display names for a page of bookings (avoids N+1 queries)."""
+    client_ids = {b.client_id for b in bookings}
+    vendor_ids = {b.vendor_id for b in bookings}
+    client_names: dict[str, str] = {}
+    vendor_names: dict[str, str] = {}
+    if client_ids:
+        rows = await db.execute(select(User.id, User.name).where(User.id.in_(client_ids)))
+        client_names = {row.id: row.name for row in rows}
+    if vendor_ids:
+        rows = await db.execute(select(Vendor.id, Vendor.name).where(Vendor.id.in_(vendor_ids)))
+        vendor_names = {row.id: row.name for row in rows}
+    return client_names, vendor_names
 
 
 @router.post("", response_model=BookingOut, status_code=201)
@@ -69,7 +86,8 @@ async def create_booking(
     db.add(booking)
     await db.commit()
     await db.refresh(booking)
-    return _to_out(booking)
+    client_names, vendor_names = await _name_lookups(db, [booking])
+    return _to_out(booking, client_names.get(booking.client_id, ""), vendor_names.get(booking.vendor_id, ""))
 
 
 @router.get("/vendor", response_model=BookingListOut)
@@ -86,7 +104,14 @@ async def list_vendor_bookings(
     total_result = await db.execute(select(func.count()).select_from(q.subquery()))
     total = total_result.scalar_one()
     result = await db.execute(q.order_by(Booking.date.desc()).offset((page - 1) * page_size).limit(page_size))
-    return BookingListOut(items=[_to_out(b) for b in result.scalars().all()], total=total, page=page, page_size=page_size)
+    bookings = result.scalars().all()
+    client_names, vendor_names = await _name_lookups(db, bookings)
+    return BookingListOut(
+        items=[_to_out(b, client_names.get(b.client_id, ""), vendor_names.get(b.vendor_id, "")) for b in bookings],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/vendor/calendar")
@@ -107,7 +132,8 @@ async def vendor_calendar(
         )
     )
     bookings = result.scalars().all()
-    return [_to_out(b) for b in bookings]
+    client_names, vendor_names = await _name_lookups(db, bookings)
+    return [_to_out(b, client_names.get(b.client_id, ""), vendor_names.get(b.vendor_id, "")) for b in bookings]
 
 
 @router.get("/me", response_model=BookingListOut)
@@ -121,7 +147,14 @@ async def list_user_bookings(
     total_result = await db.execute(select(func.count()).select_from(q.subquery()))
     total = total_result.scalar_one()
     result = await db.execute(q.order_by(Booking.date.desc()).offset((page - 1) * page_size).limit(page_size))
-    return BookingListOut(items=[_to_out(b) for b in result.scalars().all()], total=total, page=page, page_size=page_size)
+    bookings = result.scalars().all()
+    client_names, vendor_names = await _name_lookups(db, bookings)
+    return BookingListOut(
+        items=[_to_out(b, client_names.get(b.client_id, ""), vendor_names.get(b.vendor_id, "")) for b in bookings],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/admin", response_model=BookingListOut, dependencies=[Depends(get_current_admin)])
@@ -140,7 +173,14 @@ async def admin_list_bookings(
     total_result = await db.execute(select(func.count()).select_from(q.subquery()))
     total = total_result.scalar_one()
     result = await db.execute(q.order_by(Booking.date.desc()).offset((page - 1) * page_size).limit(page_size))
-    return BookingListOut(items=[_to_out(b) for b in result.scalars().all()], total=total, page=page, page_size=page_size)
+    bookings = result.scalars().all()
+    client_names, vendor_names = await _name_lookups(db, bookings)
+    return BookingListOut(
+        items=[_to_out(b, client_names.get(b.client_id, ""), vendor_names.get(b.vendor_id, "")) for b in bookings],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/{booking_id}", response_model=BookingOut)
@@ -159,7 +199,8 @@ async def get_booking(
         raise HTTPException(status_code=403, detail="Not your booking")
     if role == "vendor" and booking.vendor_id != sub:
         raise HTTPException(status_code=403, detail="Not your booking")
-    return _to_out(booking)
+    client_names, vendor_names = await _name_lookups(db, [booking])
+    return _to_out(booking, client_names.get(booking.client_id, ""), vendor_names.get(booking.vendor_id, ""))
 
 
 @router.put("/{booking_id}/status", response_model=BookingOut)
@@ -181,7 +222,8 @@ async def update_booking_status(
     booking.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(booking)
-    return _to_out(booking)
+    client_names, vendor_names = await _name_lookups(db, [booking])
+    return _to_out(booking, client_names.get(booking.client_id, ""), vendor_names.get(booking.vendor_id, ""))
 
 
 @router.post("/advance", response_model=BookingOut)
@@ -197,4 +239,5 @@ async def pay_advance(
     booking.advance_paid += body.amount
     await db.commit()
     await db.refresh(booking)
-    return _to_out(booking)
+    client_names, vendor_names = await _name_lookups(db, [booking])
+    return _to_out(booking, client_names.get(booking.client_id, ""), vendor_names.get(booking.vendor_id, ""))

@@ -12,6 +12,7 @@ class DashboardKpis(BaseModel):
     total_users: int
     total_bookings: int
     active_bookings: int
+    disputes: int
     total_revenue: float
     monthly_revenue: float
     commission_earned: float

@@ -1,0 +1,47 @@
+worker_processes auto;
+pid /tmp/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    sendfile      on;
+    gzip          on;
+    gzip_types    application/json text/plain;
+
+    # Access/error logs to stdout/stderr so they show up in Render's logs.
+    access_log /dev/stdout;
+    error_log  /dev/stderr;
+
+    upstream backend {
+        server 127.0.0.1:8000;
+    }
+
+    server {
+        # Render injects $PORT — the container must listen on it.
+        # This file is envsubst'd at startup (see entrypoint.sh) to bake
+        # the real value in, since nginx.conf can't read env vars directly.
+        listen ${PORT};
+        server_name _;
+
+        client_max_body_size 10m;
+
+        location /health {
+            proxy_pass http://backend/health;
+            access_log off;
+        }
+
+        location / {
+            proxy_pass http://backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 60s;
+        }
+    }
+}

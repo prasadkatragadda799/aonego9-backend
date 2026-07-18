@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 __pycache__/
 *.pyc
 *.pyo
@@ -10,3 +12,5 @@ dist/
 build/
 .pytest_cache/
 .mypy_cache/
+*.db
+*.db-journal
