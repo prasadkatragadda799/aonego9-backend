@@ -1,4 +1,4 @@
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,6 +38,27 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() == "production"
+
+    @model_validator(mode="after")
+    def _guard_production_config(self) -> "Settings":
+        # Fail loudly at startup instead of leaking the local-dev defaults
+        # into production, where they'd otherwise surface as a cryptic
+        # "connect call failed" to localhost:5432 or an insecure JWT secret.
+        # This almost always means the service's env vars weren't actually
+        # set (e.g. it was created by pointing Render at the repo directly
+        # instead of via Blueprint, so render.yaml's `fromDatabase` wiring
+        # never applied) — set DATABASE_URL manually in the dashboard from
+        # the Postgres instance's "Internal Connection String", or recreate
+        # the service via Render's Blueprint flow.
+        if self.is_production:
+            if "localhost" in self.DATABASE_URL or "user:password" in self.DATABASE_URL:
+                raise RuntimeError(
+                    "DATABASE_URL is still the local-dev default in a production "
+                    "environment. Set it to your managed Postgres connection string."
+                )
+            if self.SECRET_KEY == "change-me":
+                raise RuntimeError("SECRET_KEY is still the default value in a production environment.")
+        return self
 
 
 settings = Settings()
