@@ -2,7 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
+from app.core.bootstrap import ensure_admin_exists
 from app.core.config import settings
+from app.core.database import AsyncSessionLocal
 
 app = FastAPI(
     title="AOneGo9 API",
@@ -24,6 +26,12 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    async with AsyncSessionLocal() as db:
+        await ensure_admin_exists(db)
 
 
 @app.get("/health")

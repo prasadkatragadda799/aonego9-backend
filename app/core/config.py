@@ -15,6 +15,14 @@ class Settings(BaseSettings):
     # Defaults to "*" for local development.
     CORS_ORIGINS: str = "*"
 
+    # Fixed superadmin login, auto-provisioned on startup if it doesn't
+    # already exist (see app.core.bootstrap) — so a fresh deploy always has
+    # a working admin login without needing shell access to run seed.py.
+    # Override both in production so the well-known local-dev password
+    # isn't live on the public deployment.
+    ADMIN_EMAIL: str = "admin@aonego9.com"
+    ADMIN_PASSWORD: str = "demo1234"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @field_validator("DATABASE_URL")

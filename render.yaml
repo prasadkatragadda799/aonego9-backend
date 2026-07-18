@@ -35,3 +35,11 @@ services:
         # Comma-separated list of the deployed frontend origins — replace
         # with your actual Vercel/production URLs before going live.
         value: "*"
+      - key: ADMIN_EMAIL
+        value: admin@aonego9.com
+      - key: ADMIN_PASSWORD
+        # sync: false keeps this out of render.yaml/git — set the real
+        # fixed superadmin password by hand in the Render dashboard
+        # (Environment tab). The account is auto-created on first boot
+        # with whatever's set here; falls back to "demo1234" if unset.
+        sync: false

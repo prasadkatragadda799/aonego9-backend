@@ -1,9 +1,14 @@
-"""Seed subscription plans and an admin user so the apps work out of the box."""
+"""Seed subscription plans and an admin user so the apps work out of the box.
+
+The admin account itself is also auto-provisioned on every backend startup
+(see app.core.bootstrap.ensure_admin_exists) — this script exists for local
+dev convenience and for seeding the subscription plans, which startup
+bootstrapping intentionally doesn't touch.
+"""
 import asyncio
+from app.core.bootstrap import ensure_admin_exists
 from app.core.database import AsyncSessionLocal
-from app.core.security import hash_password
 from app.models.subscription import SubscriptionPlan
-from app.models.user import User, ApprovalStatus
 from sqlalchemy import select
 
 PLANS = [
@@ -22,22 +27,10 @@ async def seed():
             existing = (await db.execute(select(SubscriptionPlan).where(SubscriptionPlan.id == plan.id))).scalar_one_or_none()
             if not existing:
                 db.add(plan)
-
-        # Admin user
-        admin_email = "admin@aonego9.com"
-        existing_admin = (await db.execute(select(User).where(User.email == admin_email))).scalar_one_or_none()
-        if not existing_admin:
-            admin = User(
-                name="Super Admin",
-                email=admin_email,
-                password_hash=hash_password("demo1234"),
-                is_admin=True,
-                status=ApprovalStatus.approved,
-                verified=True,
-            )
-            db.add(admin)
-
         await db.commit()
-        print("✓ Seeded: subscription plans + admin user (admin@aonego9.com / demo1234)")
+
+        # Admin user — same fixed-credential bootstrap the backend runs on every startup.
+        await ensure_admin_exists(db)
+        print("✓ Seeded: subscription plans + admin user")
 
 asyncio.run(seed())
