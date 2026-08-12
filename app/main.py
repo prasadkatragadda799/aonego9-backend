@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
-from app.core.bootstrap import ensure_admin_exists
+from app.core.bootstrap import ensure_admin_exists, ensure_subscription_defaults
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 
@@ -32,6 +32,7 @@ app.include_router(api_router)
 async def on_startup() -> None:
     async with AsyncSessionLocal() as db:
         await ensure_admin_exists(db)
+        await ensure_subscription_defaults(db)
 
 
 @app.get("/health")

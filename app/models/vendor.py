@@ -31,6 +31,7 @@ class Vendor(Base):
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     packages = relationship("ServicePackage", back_populates="vendor", cascade="all, delete-orphan")
+    portfolio = relationship("PortfolioItem", back_populates="vendor", cascade="all, delete-orphan")
     roster = relationship("TalentMember", back_populates="vendor", cascade="all, delete-orphan")
     bookings = relationship("Booking", back_populates="vendor", foreign_keys="Booking.vendor_id")
     earnings = relationship("EarningTxn", back_populates="vendor")
@@ -39,6 +40,29 @@ class Vendor(Base):
     notifications = relationship("Notification", back_populates="vendor")
     subscription = relationship("VendorSubscription", back_populates="vendor", uselist=False)
     billing_entries = relationship("BillingEntry", back_populates="vendor")
+    profile_details = relationship(
+        "VendorProfileDetails",
+        back_populates="vendor",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+
+class PortfolioItem(Base):
+    __tablename__ = "portfolio_items"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: f"W-{uuid.uuid4().hex[:8].upper()}")
+    vendor_id: Mapped[str] = mapped_column(String, ForeignKey("vendors.id"), index=True)
+    headline: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    tag: Mapped[str] = mapped_column(String(80), default="")
+    emoji: Mapped[str] = mapped_column(String(10), default="🖼️")
+    bg: Mapped[int] = mapped_column(Integer, default=0)
+    featured: Mapped[bool] = mapped_column(Boolean, default=False)
+    type: Mapped[str] = mapped_column(String(40), default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    vendor = relationship("Vendor", back_populates="portfolio")
 
 
 class ServicePackage(Base):

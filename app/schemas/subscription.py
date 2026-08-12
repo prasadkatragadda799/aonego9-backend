@@ -9,6 +9,7 @@ class SubscriptionPlanOut(BaseModel):
     period: str
     features: list[str]
     recommended: bool
+    audience: str
 
     model_config = {"from_attributes": True}
 
@@ -22,7 +23,17 @@ class SubscriptionPlanOut(BaseModel):
             period=obj.period,
             features=features,
             recommended=obj.recommended,
+            audience=obj.audience,
         )
+
+
+class PlanCreateUpdate(BaseModel):
+    name: str
+    price: float = 0.0
+    period: str = "per month"
+    features: list[str] = []
+    recommended: bool = False
+    audience: str = "both"  # "vendor" | "user" | "both"
 
 
 class VendorSubscriptionOut(BaseModel):
@@ -35,9 +46,14 @@ class VendorSubscriptionOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class SubscribeRequest(BaseModel):
+class ClientSubscriptionOut(BaseModel):
     plan_id: str
-    payment_method: str = "Card"
+    plan_name: str
+    price: float
+    status: str
+    renews_on: datetime
+
+    model_config = {"from_attributes": True}
 
 
 class BillingEntryOut(BaseModel):
@@ -48,3 +64,41 @@ class BillingEntryOut(BaseModel):
     status: str
 
     model_config = {"from_attributes": True}
+
+
+class SubscriptionRequestIn(BaseModel):
+    plan_id: str
+    receipt_image: str  # base64 data URI of the payment screenshot
+
+
+class SubscriptionRequestOut(BaseModel):
+    id: str
+    requester_type: str
+    vendor_id: str | None
+    user_id: str | None
+    plan_id: str
+    plan_name: str
+    amount: float
+    receipt_image: str
+    status: str
+    admin_note: str
+    created_at: datetime
+    reviewed_at: datetime | None
+
+    model_config = {"from_attributes": True}
+
+
+class SubscriptionReviewIn(BaseModel):
+    admin_note: str = ""
+
+
+class PaymentSettingsOut(BaseModel):
+    upi_id: str
+    payee_name: str
+
+    model_config = {"from_attributes": True}
+
+
+class PaymentSettingsIn(BaseModel):
+    upi_id: str
+    payee_name: str = "AOneGo9"

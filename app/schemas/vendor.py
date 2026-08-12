@@ -123,6 +123,43 @@ class TalentMemberUpdate(BaseModel):
     available: bool | None = None
 
 
+class PortfolioItemOut(BaseModel):
+    id: str
+    vendor_id: str
+    headline: str
+    description: str
+    tag: str
+    emoji: str
+    bg: int
+    featured: bool
+    type: str
+    sort_order: int
+
+    model_config = {"from_attributes": True}
+
+
+class PortfolioItemCreate(BaseModel):
+    headline: str
+    description: str = ""
+    tag: str = ""
+    emoji: str = "🖼️"
+    bg: int = 0
+    featured: bool = False
+    type: str = ""
+    sort_order: int = 0
+
+
+class PortfolioItemUpdate(BaseModel):
+    headline: str | None = None
+    description: str | None = None
+    tag: str | None = None
+    emoji: str | None = None
+    bg: int | None = None
+    featured: bool | None = None
+    type: str | None = None
+    sort_order: int | None = None
+
+
 class VendorListOut(BaseModel):
     items: list[VendorOut]
     total: int

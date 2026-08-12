@@ -5,11 +5,52 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_admin, get_current_user, get_current_vendor
 from app.models.review import Review
-from app.models.user import User
+from app.models.user import ApprovalStatus, User
 from app.models.vendor import Vendor
-from app.schemas.review import ReviewCreate, ReviewListOut, ReviewOut, ReviewReply
+from app.schemas.review import ReviewCreate, ReviewListOut, ReviewOut, ReviewPublicListOut, ReviewPublicOut, ReviewReply
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
+
+
+@router.get("/public/{vendor_id}", response_model=ReviewPublicListOut)
+async def list_public_reviews(
+    vendor_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    vendor_result = await db.execute(
+        select(Vendor).where(Vendor.id == vendor_id, Vendor.status == ApprovalStatus.approved)
+    )
+    if not vendor_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    q = select(Review).where(Review.vendor_id == vendor_id, Review.flagged == False)
+    all_result = await db.execute(q)
+    all_reviews = all_result.scalars().all()
+    avg = sum(r.stars for r in all_reviews) / len(all_reviews) if all_reviews else 0.0
+
+    paginated = await db.execute(q.order_by(Review.date.desc()).offset((page - 1) * page_size).limit(page_size))
+    reviews = paginated.scalars().all()
+
+    author_ids = {r.author_id for r in reviews}
+    authors: dict[str, str] = {}
+    if author_ids:
+        users_result = await db.execute(select(User).where(User.id.in_(author_ids)))
+        authors = {u.id: u.name for u in users_result.scalars().all()}
+
+    items = [
+        ReviewPublicOut(
+            id=r.id,
+            author=authors.get(r.author_id, "Client"),
+            stars=r.stars,
+            text=r.text,
+            reply=r.reply,
+            date=r.date,
+        )
+        for r in reviews
+    ]
+    return ReviewPublicListOut(items=items, total=len(all_reviews), average_rating=avg)
 
 
 @router.get("/vendor", response_model=ReviewListOut)

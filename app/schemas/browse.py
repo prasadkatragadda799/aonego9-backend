@@ -27,6 +27,7 @@ class InquiryCreate(BaseModel):
 class InquiryOut(BaseModel):
     inquiry_ref: str
     vendor_id: str
+    booking_id: str
     status: str = "submitted"
     message: str = "Your inquiry has been sent to the vendor."
 

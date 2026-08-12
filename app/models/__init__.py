@@ -1,5 +1,6 @@
 from app.models.user import User, UserRole, ApprovalStatus
-from app.models.vendor import Vendor, ServicePackage, TalentMember
+from app.models.vendor import Vendor, ServicePackage, PortfolioItem, TalentMember
+from app.models.vendor_profile import VendorProfileDetails
 from app.models.booking import Booking, BookingStatus, BookingSource
 from app.models.payment import PaymentTxn, EarningTxn, PaymentStatus, TxnType
 from app.models.review import Review
@@ -11,7 +12,7 @@ from app.models.subscription import SubscriptionPlan, VendorSubscription, Billin
 
 __all__ = [
     "User", "UserRole", "ApprovalStatus",
-    "Vendor", "ServicePackage", "TalentMember",
+    "Vendor", "ServicePackage", "PortfolioItem", "TalentMember", "VendorProfileDetails",
     "Booking", "BookingStatus", "BookingSource",
     "PaymentTxn", "EarningTxn", "PaymentStatus", "TxnType",
     "Review",

@@ -31,3 +31,18 @@ class ReviewListOut(BaseModel):
     items: list[ReviewOut]
     total: int
     average_rating: float
+
+
+class ReviewPublicOut(BaseModel):
+    id: str
+    author: str
+    stars: int
+    text: str
+    reply: str | None
+    date: datetime
+
+
+class ReviewPublicListOut(BaseModel):
+    items: list[ReviewPublicOut]
+    total: int
+    average_rating: float

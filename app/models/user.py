@@ -47,3 +47,4 @@ class User(Base):
     bookings = relationship("Booking", back_populates="client", foreign_keys="Booking.client_id")
     reviews = relationship("Review", back_populates="author", foreign_keys="Review.author_id")
     support_tickets = relationship("SupportTicket", back_populates="requester")
+    subscription = relationship("ClientSubscription", back_populates="user", uselist=False)

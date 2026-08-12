@@ -5,8 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_admin, get_current_vendor
 from app.models.user import ApprovalStatus, User
-from app.models.vendor import ServicePackage, TalentMember, Vendor
+from app.models.vendor import ServicePackage, PortfolioItem, TalentMember, Vendor
+from app.api.v1.vendor_profile_helpers import get_approved_vendor, get_or_create_details
+from app.schemas.vendor_profile import VendorProfileDetailsOut, VendorProfileDetailsUpdate, apply_update, details_to_out
 from app.schemas.vendor import (
+    PortfolioItemCreate,
+    PortfolioItemOut,
+    PortfolioItemUpdate,
     ServicePackageCreate,
     ServicePackageOut,
     ServicePackageUpdate,
@@ -64,6 +69,32 @@ async def get_vendor_packages_public(vendor_id: str, db: AsyncSession = Depends(
     return result.scalars().all()
 
 
+@router.get("/public/{vendor_id}/portfolio", response_model=list[PortfolioItemOut])
+async def get_vendor_portfolio_public(vendor_id: str, db: AsyncSession = Depends(get_db)):
+    """Portfolio works for an approved vendor — shown on the public profile."""
+    vendor_result = await db.execute(
+        select(Vendor).where(Vendor.id == vendor_id, Vendor.status == ApprovalStatus.approved)
+    )
+    if not vendor_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    result = await db.execute(
+        select(PortfolioItem)
+        .where(PortfolioItem.vendor_id == vendor_id)
+        .order_by(PortfolioItem.featured.desc(), PortfolioItem.sort_order, PortfolioItem.headline)
+    )
+    return result.scalars().all()
+
+
+@router.get("/public/{vendor_id}/profile-details", response_model=VendorProfileDetailsOut)
+async def get_vendor_profile_details_public(vendor_id: str, db: AsyncSession = Depends(get_db)):
+    vendor = await get_approved_vendor(db, vendor_id)
+    if not vendor or vendor.status != ApprovalStatus.approved:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    row = await get_or_create_details(db, vendor_id)
+    await db.commit()
+    return details_to_out(row)
+
+
 # ── Vendor self-service ──────────────────────────────────────
 
 @router.get("/me", response_model=VendorOut)
@@ -82,6 +113,26 @@ async def update_my_profile(
     await db.commit()
     await db.refresh(vendor)
     return vendor
+
+
+@router.get("/me/profile-details", response_model=VendorProfileDetailsOut)
+async def get_my_profile_details(vendor: Vendor = Depends(get_current_vendor), db: AsyncSession = Depends(get_db)):
+    row = await get_or_create_details(db, vendor.id)
+    await db.commit()
+    return details_to_out(row)
+
+
+@router.put("/me/profile-details", response_model=VendorProfileDetailsOut)
+async def update_my_profile_details(
+    body: VendorProfileDetailsUpdate,
+    vendor: Vendor = Depends(get_current_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    row = await get_or_create_details(db, vendor.id)
+    apply_update(row, body)
+    await db.commit()
+    await db.refresh(row)
+    return details_to_out(row)
 
 
 # ── Service packages ─────────────────────────────────────────
@@ -222,6 +273,85 @@ async def delete_talent(
     await db.commit()
 
 
+# ── Portfolio ────────────────────────────────────────────────
+
+@router.get("/me/portfolio", response_model=list[PortfolioItemOut])
+async def list_portfolio(vendor: Vendor = Depends(get_current_vendor), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(PortfolioItem)
+        .where(PortfolioItem.vendor_id == vendor.id)
+        .order_by(PortfolioItem.featured.desc(), PortfolioItem.sort_order, PortfolioItem.headline)
+    )
+    return result.scalars().all()
+
+
+@router.post("/me/portfolio", response_model=PortfolioItemOut, status_code=201)
+async def create_portfolio_item(
+    body: PortfolioItemCreate,
+    vendor: Vendor = Depends(get_current_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    item = PortfolioItem(vendor_id=vendor.id, **body.model_dump())
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+@router.put("/me/portfolio/{item_id}", response_model=PortfolioItemOut)
+async def update_portfolio_item(
+    item_id: str,
+    body: PortfolioItemUpdate,
+    vendor: Vendor = Depends(get_current_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(PortfolioItem).where(PortfolioItem.id == item_id, PortfolioItem.vendor_id == vendor.id)
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Portfolio item not found")
+    for field, value in body.model_dump(exclude_none=True).items():
+        setattr(item, field, value)
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+@router.patch("/me/portfolio/{item_id}/feature", response_model=PortfolioItemOut)
+async def toggle_portfolio_feature(
+    item_id: str,
+    vendor: Vendor = Depends(get_current_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(PortfolioItem).where(PortfolioItem.id == item_id, PortfolioItem.vendor_id == vendor.id)
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Portfolio item not found")
+    item.featured = not item.featured
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+@router.delete("/me/portfolio/{item_id}", status_code=204)
+async def delete_portfolio_item(
+    item_id: str,
+    vendor: Vendor = Depends(get_current_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(PortfolioItem).where(PortfolioItem.id == item_id, PortfolioItem.vendor_id == vendor.id)
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Portfolio item not found")
+    await db.delete(item)
+    await db.commit()
+
+
 # ── Admin vendor management ───────────────────────────────────
 
 @router.get("/admin", response_model=VendorListOut, dependencies=[Depends(get_current_admin)])
@@ -250,6 +380,30 @@ async def admin_get_vendor(vendor_id: str, db: AsyncSession = Depends(get_db)):
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
     return vendor
+
+
+@router.get("/admin/{vendor_id}/portfolio", response_model=list[PortfolioItemOut], dependencies=[Depends(get_current_admin)])
+async def admin_get_vendor_portfolio(vendor_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Vendor).where(Vendor.id == vendor_id))
+    vendor = result.scalar_one_or_none()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    items = await db.execute(
+        select(PortfolioItem)
+        .where(PortfolioItem.vendor_id == vendor_id)
+        .order_by(PortfolioItem.featured.desc(), PortfolioItem.sort_order, PortfolioItem.headline)
+    )
+    return items.scalars().all()
+
+
+@router.get("/admin/{vendor_id}/profile-details", response_model=VendorProfileDetailsOut, dependencies=[Depends(get_current_admin)])
+async def admin_get_vendor_profile_details(vendor_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Vendor).where(Vendor.id == vendor_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    row = await get_or_create_details(db, vendor_id)
+    await db.commit()
+    return details_to_out(row)
 
 
 @router.put("/admin/{vendor_id}/status", response_model=VendorOut)

@@ -59,6 +59,13 @@ async def browse_listings(
         # Include vendors in the requested city OR vendors with no city set (pan-India)
         from sqlalchemy import or_
         q = q.where(or_(Vendor.city.ilike(f"%{city}%"), Vendor.city == "", Vendor.city.is_(None)))
+    if filter and filter.lower() != "all":
+        from sqlalchemy import or_
+        q = q.where(or_(
+            Vendor.bio.ilike(f"%{filter}%"),
+            Vendor.category.ilike(f"%{filter}%"),
+            Vendor.company.ilike(f"%{filter}%"),
+        ))
     result = await db.execute(q.offset((page - 1) * page_size).limit(page_size))
     return result.scalars().all()
 
@@ -134,6 +141,7 @@ async def submit_inquiry(body: InquiryCreate, db: AsyncSession = Depends(get_db)
         notes=body.message,
     )
     db.add(booking)
+    await db.flush()
 
     # Notify the vendor
     if vendor:
@@ -147,10 +155,12 @@ async def submit_inquiry(body: InquiryCreate, db: AsyncSession = Depends(get_db)
         db.add(notif)
 
     await db.commit()
+    await db.refresh(booking)
 
     return InquiryOut(
         inquiry_ref=body.inquiry_ref,
         vendor_id=body.vendor_id,
+        booking_id=booking.id,
         status="submitted",
         message=f"Your inquiry (ref: {body.inquiry_ref}) has been sent to the vendor.",
     )
