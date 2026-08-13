@@ -58,6 +58,7 @@ class PortfolioItem(Base):
     tag: Mapped[str] = mapped_column(String(80), default="")
     emoji: Mapped[str] = mapped_column(String(10), default="🖼️")
     bg: Mapped[int] = mapped_column(Integer, default=0)
+    image_url: Mapped[str] = mapped_column(String(500), default="")
     featured: Mapped[bool] = mapped_column(Boolean, default=False)
     type: Mapped[str] = mapped_column(String(40), default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)

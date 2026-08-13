@@ -131,6 +131,7 @@ class PortfolioItemOut(BaseModel):
     tag: str
     emoji: str
     bg: int
+    image_url: str
     featured: bool
     type: str
     sort_order: int
@@ -144,6 +145,7 @@ class PortfolioItemCreate(BaseModel):
     tag: str = ""
     emoji: str = "🖼️"
     bg: int = 0
+    image_url: str = ""
     featured: bool = False
     type: str = ""
     sort_order: int = 0
@@ -155,6 +157,7 @@ class PortfolioItemUpdate(BaseModel):
     tag: str | None = None
     emoji: str | None = None
     bg: int | None = None
+    image_url: str | None = None
     featured: bool | None = None
     type: str | None = None
     sort_order: int | None = None

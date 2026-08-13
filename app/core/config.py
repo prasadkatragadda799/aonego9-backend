@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@aonego9.com"
     ADMIN_PASSWORD: str = "demo1234"
 
+    # Cloudinary — required for persistent image uploads (receipts, avatars, portfolio).
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @field_validator("DATABASE_URL")

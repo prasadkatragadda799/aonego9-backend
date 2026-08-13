@@ -43,3 +43,9 @@ services:
         # (Environment tab). The account is auto-created on first boot
         # with whatever's set here; falls back to "demo1234" if unset.
         sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false

@@ -68,7 +68,7 @@ class BillingEntryOut(BaseModel):
 
 class SubscriptionRequestIn(BaseModel):
     plan_id: str
-    receipt_image: str  # base64 data URI of the payment screenshot
+    receipt_image: str  # Cloudinary HTTPS URL (legacy base64 data URIs are auto-uploaded when configured)
 
 
 class SubscriptionRequestOut(BaseModel):

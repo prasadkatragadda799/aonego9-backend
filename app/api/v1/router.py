@@ -13,6 +13,7 @@ from app.api.v1 import (
     reviews,
     subscriptions,
     support,
+    uploads,
     users,
     vendors,
 )
@@ -33,3 +34,4 @@ api_router.include_router(subscriptions.router)
 api_router.include_router(analytics.router)
 api_router.include_router(support.router)
 api_router.include_router(browse.router)
+api_router.include_router(uploads.router)
