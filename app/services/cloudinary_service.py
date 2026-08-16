@@ -29,8 +29,11 @@ def upload_bytes(data: bytes, *, folder: str) -> str:
     if len(data) > MAX_BYTES:
         raise ValueError("File too large (max 10 MB)")
     _configure()
-    result = cloudinary.uploader.upload(data, folder=folder, resource_type="image")
-    return result["secure_url"]
+    try:
+        result = cloudinary.uploader.upload(data, folder=folder, resource_type="image")
+        return result["secure_url"]
+    except Exception as exc:
+        raise RuntimeError(f"Cloudinary error: {exc}") from exc
 
 
 def upload_data_uri(data_uri: str, *, folder: str) -> str:
