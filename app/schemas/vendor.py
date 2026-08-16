@@ -32,6 +32,7 @@ class VendorPublicOut(BaseModel):
     category: str
     bio: str
     avatar_url: str
+    kyc_verified: bool
     rating: float
     total_bookings: int
     plan: str
