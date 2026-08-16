@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from app.models.user import User
 from app.models.vendor import Vendor
 from app.services.cloudinary_service import normalize_image_reference
 from app.schemas.subscription import (
+    AdminAssignSubscriptionIn,
     BillingEntryOut,
     ClientSubscriptionOut,
     PaymentSettingsIn,
@@ -28,6 +29,11 @@ from app.schemas.subscription import (
     SubscriptionRequestOut,
     SubscriptionReviewIn,
     VendorSubscriptionOut,
+)
+from app.services.subscription_service import (
+    activate_client_subscription,
+    activate_vendor_subscription,
+    default_vendor_plan,
 )
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
@@ -117,6 +123,17 @@ async def request_subscription(
         status="pending",
     )
     db.add(req)
+    await db.flush()
+
+    # Free plans activate immediately — no admin review needed.
+    if plan.price <= 0:
+        if kind == "vendor":
+            await activate_vendor_subscription(db, vendor_id=party.id, plan=plan, create_billing=False)
+        else:
+            await activate_client_subscription(db, user_id=party.id, plan=plan)
+        req.status = "approved"
+        req.reviewed_at = datetime.now(timezone.utc)
+
     await db.commit()
     await db.refresh(req)
     return req
@@ -203,6 +220,34 @@ async def admin_delete_plan(plan_id: str, db: AsyncSession = Depends(get_db)):
     return {"ok": True}
 
 
+@router.post(
+    "/admin/vendors/{vendor_id}/assign",
+    response_model=VendorSubscriptionOut,
+    dependencies=[Depends(get_current_admin)],
+)
+async def admin_assign_vendor_subscription(
+    vendor_id: str,
+    body: AdminAssignSubscriptionIn,
+    db: AsyncSession = Depends(get_db),
+):
+    vendor_result = await db.execute(select(Vendor).where(Vendor.id == vendor_id))
+    vendor = vendor_result.scalar_one_or_none()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    plan_result = await db.execute(select(SubscriptionPlan).where(SubscriptionPlan.id == body.plan_id))
+    plan = plan_result.scalar_one_or_none()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if plan.audience not in ("vendor", "both"):
+        raise HTTPException(status_code=400, detail="Plan is not offered to vendors")
+
+    sub = await activate_vendor_subscription(db, vendor_id=vendor_id, plan=plan, create_billing=False)
+    await db.commit()
+    await db.refresh(sub)
+    return VendorSubscriptionOut.model_validate(sub)
+
+
 @router.get("/admin/payment-info", response_model=PaymentSettingsOut, dependencies=[Depends(get_current_admin)])
 async def admin_get_payment_info(db: AsyncSession = Depends(get_db)):
     return await payment_info(db)
@@ -253,57 +298,10 @@ async def admin_approve_request(request_id: str, body: SubscriptionReviewIn, db:
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    renews_on = datetime.now(timezone.utc) + timedelta(days=30)
-
     if req.requester_type == "vendor":
-        sub_result = await db.execute(select(VendorSubscription).where(VendorSubscription.vendor_id == req.vendor_id))
-        sub = sub_result.scalar_one_or_none()
-        if sub:
-            sub.plan_id = plan.id
-            sub.plan_name = plan.name
-            sub.price = plan.price
-            sub.status = "active"
-            sub.renews_on = renews_on
-        else:
-            sub = VendorSubscription(
-                vendor_id=req.vendor_id,
-                plan_id=plan.id,
-                plan_name=plan.name,
-                price=plan.price,
-                status="active",
-                renews_on=renews_on,
-            )
-            db.add(sub)
-        vendor_result = await db.execute(select(Vendor).where(Vendor.id == req.vendor_id))
-        vendor = vendor_result.scalar_one_or_none()
-        if vendor:
-            vendor.plan = plan.name
-        if plan.price > 0:
-            db.add(BillingEntry(
-                vendor_id=req.vendor_id,
-                description=f"{plan.name} plan — {datetime.now(timezone.utc).strftime('%B %Y')}",
-                amount=plan.price,
-                status="paid",
-            ))
+        await activate_vendor_subscription(db, vendor_id=req.vendor_id, plan=plan, create_billing=plan.price > 0)
     else:
-        sub_result = await db.execute(select(ClientSubscription).where(ClientSubscription.user_id == req.user_id))
-        sub = sub_result.scalar_one_or_none()
-        if sub:
-            sub.plan_id = plan.id
-            sub.plan_name = plan.name
-            sub.price = plan.price
-            sub.status = "active"
-            sub.renews_on = renews_on
-        else:
-            sub = ClientSubscription(
-                user_id=req.user_id,
-                plan_id=plan.id,
-                plan_name=plan.name,
-                price=plan.price,
-                status="active",
-                renews_on=renews_on,
-            )
-            db.add(sub)
+        await activate_client_subscription(db, user_id=req.user_id, plan=plan)
 
     req.status = "approved"
     req.admin_note = body.admin_note

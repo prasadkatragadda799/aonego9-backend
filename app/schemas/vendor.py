@@ -1,5 +1,7 @@
 from datetime import datetime
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from app.utils.url_lists import MAX_GALLERY_IMAGES, MAX_PORTFOLIO_IMAGES, validate_url_list
 
 
 class VendorOut(BaseModel):
@@ -12,6 +14,7 @@ class VendorOut(BaseModel):
     category: str
     bio: str
     avatar_url: str
+    gallery_urls: list[str] = Field(default_factory=list)
     status: str
     kyc_verified: bool
     rating: float
@@ -32,6 +35,7 @@ class VendorPublicOut(BaseModel):
     category: str
     bio: str
     avatar_url: str
+    gallery_urls: list[str] = Field(default_factory=list)
     kyc_verified: bool
     rating: float
     total_bookings: int
@@ -48,6 +52,14 @@ class VendorUpdate(BaseModel):
     category: str | None = None
     bio: str | None = None
     avatar_url: str | None = None
+    gallery_urls: list[str] | None = None
+
+    @field_validator("gallery_urls")
+    @classmethod
+    def _validate_gallery(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        return validate_url_list(v, max_count=MAX_GALLERY_IMAGES, field_name="gallery_urls")
 
 
 class VendorStatusUpdate(BaseModel):
@@ -133,6 +145,7 @@ class PortfolioItemOut(BaseModel):
     emoji: str
     bg: int
     image_url: str
+    images: list[str] = Field(default_factory=list)
     featured: bool
     type: str
     sort_order: int
@@ -147,9 +160,15 @@ class PortfolioItemCreate(BaseModel):
     emoji: str = "🖼️"
     bg: int = 0
     image_url: str = ""
+    images: list[str] = Field(default_factory=list)
     featured: bool = False
     type: str = ""
     sort_order: int = 0
+
+    @field_validator("images")
+    @classmethod
+    def _validate_images(cls, v: list[str]) -> list[str]:
+        return validate_url_list(v, max_count=MAX_PORTFOLIO_IMAGES, field_name="images")
 
 
 class PortfolioItemUpdate(BaseModel):
@@ -159,9 +178,17 @@ class PortfolioItemUpdate(BaseModel):
     emoji: str | None = None
     bg: int | None = None
     image_url: str | None = None
+    images: list[str] | None = None
     featured: bool | None = None
     type: str | None = None
     sort_order: int | None = None
+
+    @field_validator("images")
+    @classmethod
+    def _validate_images(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        return validate_url_list(v, max_count=MAX_PORTFOLIO_IMAGES, field_name="images")
 
 
 class VendorListOut(BaseModel):

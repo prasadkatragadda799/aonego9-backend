@@ -102,3 +102,7 @@ class PaymentSettingsOut(BaseModel):
 class PaymentSettingsIn(BaseModel):
     upi_id: str
     payee_name: str = "AOneGo9"
+
+
+class AdminAssignSubscriptionIn(BaseModel):
+    plan_id: str

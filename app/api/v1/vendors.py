@@ -6,7 +6,10 @@ from app.core.database import get_db
 from app.core.deps import get_current_admin, get_current_vendor
 from app.models.user import ApprovalStatus, User
 from app.models.vendor import ServicePackage, PortfolioItem, TalentMember, Vendor
+from app.api.v1.portfolio_helpers import apply_portfolio_images
 from app.api.v1.vendor_profile_helpers import get_approved_vendor, get_or_create_details
+from app.schemas.vendor_serializers import portfolio_item_to_out, vendor_to_out, vendor_to_public_out
+from app.utils.url_lists import dump_url_list, validate_url_list, MAX_GALLERY_IMAGES
 from app.schemas.vendor_profile import VendorProfileDetailsOut, VendorProfileDetailsUpdate, apply_update, details_to_out
 from app.schemas.vendor import (
     PortfolioItemCreate,
@@ -45,7 +48,7 @@ async def list_vendors_public(
     if city:
         q = q.where(Vendor.city == city)
     result = await db.execute(q.offset((page - 1) * page_size).limit(page_size))
-    return result.scalars().all()
+    return [vendor_to_public_out(v) for v in result.scalars().all()]
 
 
 @router.get("/public/{vendor_id}", response_model=VendorPublicOut)
@@ -54,7 +57,7 @@ async def get_vendor_public(vendor_id: str, db: AsyncSession = Depends(get_db)):
     vendor = result.scalar_one_or_none()
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
-    return vendor
+    return vendor_to_public_out(vendor)
 
 
 @router.get("/public/{vendor_id}/packages", response_model=list[ServicePackageOut])
@@ -82,7 +85,7 @@ async def get_vendor_portfolio_public(vendor_id: str, db: AsyncSession = Depends
         .where(PortfolioItem.vendor_id == vendor_id)
         .order_by(PortfolioItem.featured.desc(), PortfolioItem.sort_order, PortfolioItem.headline)
     )
-    return result.scalars().all()
+    return [portfolio_item_to_out(i) for i in result.scalars().all()]
 
 
 @router.get("/public/{vendor_id}/profile-details", response_model=VendorProfileDetailsOut)
@@ -99,7 +102,7 @@ async def get_vendor_profile_details_public(vendor_id: str, db: AsyncSession = D
 
 @router.get("/me", response_model=VendorOut)
 async def get_my_profile(vendor: Vendor = Depends(get_current_vendor)):
-    return vendor
+    return vendor_to_out(vendor)
 
 
 @router.put("/me", response_model=VendorOut)
@@ -108,11 +111,15 @@ async def update_my_profile(
     vendor: Vendor = Depends(get_current_vendor),
     db: AsyncSession = Depends(get_db),
 ):
-    for field, value in body.model_dump(exclude_none=True).items():
+    data = body.model_dump(exclude_none=True)
+    if "gallery_urls" in data:
+        urls = validate_url_list(data.pop("gallery_urls"), max_count=MAX_GALLERY_IMAGES, field_name="gallery_urls")
+        vendor.gallery_urls_json = dump_url_list(urls, max_count=MAX_GALLERY_IMAGES)
+    for field, value in data.items():
         setattr(vendor, field, value)
     await db.commit()
     await db.refresh(vendor)
-    return vendor
+    return vendor_to_out(vendor)
 
 
 @router.get("/me/profile-details", response_model=VendorProfileDetailsOut)
@@ -282,7 +289,7 @@ async def list_portfolio(vendor: Vendor = Depends(get_current_vendor), db: Async
         .where(PortfolioItem.vendor_id == vendor.id)
         .order_by(PortfolioItem.featured.desc(), PortfolioItem.sort_order, PortfolioItem.headline)
     )
-    return result.scalars().all()
+    return [portfolio_item_to_out(i) for i in result.scalars().all()]
 
 
 @router.post("/me/portfolio", response_model=PortfolioItemOut, status_code=201)
@@ -291,11 +298,15 @@ async def create_portfolio_item(
     vendor: Vendor = Depends(get_current_vendor),
     db: AsyncSession = Depends(get_db),
 ):
-    item = PortfolioItem(vendor_id=vendor.id, **body.model_dump())
+    payload = body.model_dump()
+    images = payload.pop("images", None)
+    image_url = payload.pop("image_url", "")
+    item = PortfolioItem(vendor_id=vendor.id, **payload)
+    apply_portfolio_images(item, images=images if images else None, image_url=image_url if not images else None)
     db.add(item)
     await db.commit()
     await db.refresh(item)
-    return item
+    return portfolio_item_to_out(item)
 
 
 @router.put("/me/portfolio/{item_id}", response_model=PortfolioItemOut)
@@ -311,11 +322,16 @@ async def update_portfolio_item(
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="Portfolio item not found")
-    for field, value in body.model_dump(exclude_none=True).items():
+    payload = body.model_dump(exclude_none=True)
+    images = payload.pop("images", None)
+    image_url = payload.pop("image_url", None)
+    for field, value in payload.items():
         setattr(item, field, value)
+    if images is not None or image_url is not None:
+        apply_portfolio_images(item, images=images, image_url=image_url)
     await db.commit()
     await db.refresh(item)
-    return item
+    return portfolio_item_to_out(item)
 
 
 @router.patch("/me/portfolio/{item_id}/feature", response_model=PortfolioItemOut)
@@ -333,7 +349,7 @@ async def toggle_portfolio_feature(
     item.featured = not item.featured
     await db.commit()
     await db.refresh(item)
-    return item
+    return portfolio_item_to_out(item)
 
 
 @router.delete("/me/portfolio/{item_id}", status_code=204)
@@ -370,7 +386,12 @@ async def admin_list_vendors(
     total_result = await db.execute(select(func.count()).select_from(q.subquery()))
     total = total_result.scalar_one()
     result = await db.execute(q.offset((page - 1) * page_size).limit(page_size))
-    return VendorListOut(items=result.scalars().all(), total=total, page=page, page_size=page_size)
+    return VendorListOut(
+        items=[vendor_to_out(v) for v in result.scalars().all()],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/admin/{vendor_id}", response_model=VendorOut, dependencies=[Depends(get_current_admin)])
@@ -379,10 +400,7 @@ async def admin_get_vendor(vendor_id: str, db: AsyncSession = Depends(get_db)):
     vendor = result.scalar_one_or_none()
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
-    return vendor
-
-
-@router.get("/admin/{vendor_id}/portfolio", response_model=list[PortfolioItemOut], dependencies=[Depends(get_current_admin)])
+    return vendor_to_out(vendor)
 async def admin_get_vendor_portfolio(vendor_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Vendor).where(Vendor.id == vendor_id))
     vendor = result.scalar_one_or_none()
@@ -393,7 +411,7 @@ async def admin_get_vendor_portfolio(vendor_id: str, db: AsyncSession = Depends(
         .where(PortfolioItem.vendor_id == vendor_id)
         .order_by(PortfolioItem.featured.desc(), PortfolioItem.sort_order, PortfolioItem.headline)
     )
-    return items.scalars().all()
+    return [portfolio_item_to_out(i) for i in items.scalars().all()]
 
 
 @router.get("/admin/{vendor_id}/profile-details", response_model=VendorProfileDetailsOut, dependencies=[Depends(get_current_admin)])
@@ -420,7 +438,7 @@ async def admin_update_vendor_status(
     vendor.status = ApprovalStatus(body.status)
     await db.commit()
     await db.refresh(vendor)
-    return vendor
+    return vendor_to_out(vendor)
 
 
 @router.put("/admin/{vendor_id}/kyc", response_model=VendorOut)
@@ -437,4 +455,4 @@ async def admin_update_vendor_kyc(
     vendor.kyc_verified = body.kyc_verified
     await db.commit()
     await db.refresh(vendor)
-    return vendor
+    return vendor_to_out(vendor)

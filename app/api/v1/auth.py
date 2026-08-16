@@ -13,6 +13,7 @@ from app.core.security import (
 )
 from app.models.user import ApprovalStatus, User, UserRole
 from app.models.vendor import Vendor
+from app.services.subscription_service import activate_vendor_subscription, default_vendor_plan
 from app.schemas.auth import (
     LoginRequest,
     RefreshRequest,
@@ -64,6 +65,12 @@ async def register_vendor(body: RegisterVendorRequest, db: AsyncSession = Depend
         status=ApprovalStatus.approved,  # auto-approve for demo; admin can suspend later
     )
     db.add(vendor)
+    await db.flush()
+
+    starter = await default_vendor_plan(db)
+    if starter:
+        await activate_vendor_subscription(db, vendor_id=vendor.id, plan=starter, create_billing=False)
+
     await db.commit()
     await db.refresh(vendor)
     return TokenResponse(
