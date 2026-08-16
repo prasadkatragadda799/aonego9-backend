@@ -20,7 +20,10 @@ async def upload_image(
         folder = "misc"
 
     content_type = (file.content_type or "").lower()
-    if content_type and not content_type.startswith("image/"):
+    if content_type and not (
+        content_type.startswith("image/")
+        or content_type in {"application/octet-stream", "binary/octet-stream"}
+    ):
         raise HTTPException(status_code=400, detail="Only image uploads are allowed")
 
     data = await file.read()
