@@ -39,6 +39,7 @@ class User(Base):
     status: Mapped[ApprovalStatus] = mapped_column(Enum(ApprovalStatus), default=ApprovalStatus.pending)
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    admin_city: Mapped[str] = mapped_column(String(100), default="")  # empty = all cities
     rating: Mapped[float] = mapped_column(Float, default=0.0)
     jobs_done: Mapped[int] = mapped_column(Integer, default=0)
     avatar_url: Mapped[str] = mapped_column(String(500), default="")

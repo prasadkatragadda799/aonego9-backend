@@ -4,6 +4,18 @@ from pydantic import BaseModel, EmailStr
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    city: str = ""  # required for city-scoped admin accounts
+
+
+class OtpSendRequest(BaseModel):
+    phone: str
+    purpose: str = "register"  # register | inquiry | vendor_register
+
+
+class OtpVerifyRequest(BaseModel):
+    phone: str
+    code: str
+    purpose: str = "register"
 
 
 class RegisterUserRequest(BaseModel):
@@ -23,6 +35,7 @@ class RegisterVendorRequest(BaseModel):
     phone: str = ""
     city: str = ""
     category: str = ""
+    phone_otp: str = ""
 
 
 class TokenResponse(BaseModel):

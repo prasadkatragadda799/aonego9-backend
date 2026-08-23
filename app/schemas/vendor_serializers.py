@@ -22,6 +22,8 @@ def vendor_to_out(vendor: Vendor) -> VendorOut:
         total_earnings=vendor.total_earnings,
         plan=vendor.plan,
         joined_at=vendor.joined_at,
+        phone_verified=vendor.phone_verified,
+        last_login_at=vendor.last_login_at,
     )
 
 

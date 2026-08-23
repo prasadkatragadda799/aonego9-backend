@@ -9,6 +9,9 @@ from app.models.notification import Notification, IconKind
 from app.models.event import PlatformEvent, EventStatus
 from app.models.cms import CmsBanner, Category
 from app.models.subscription import SubscriptionPlan, VendorSubscription, BillingEntry, SupportTicket
+from app.models.newsletter import NewsletterIssue, NewsletterContribution
+from app.models.advance_request import AdvancePaymentRequest
+from app.models.phone_otp import PhoneOtp
 
 __all__ = [
     "User", "UserRole", "ApprovalStatus",
@@ -21,4 +24,6 @@ __all__ = [
     "PlatformEvent", "EventStatus",
     "CmsBanner", "Category",
     "SubscriptionPlan", "VendorSubscription", "BillingEntry", "SupportTicket",
+    "NewsletterIssue", "NewsletterContribution",
+    "AdvancePaymentRequest", "PhoneOtp",
 ]

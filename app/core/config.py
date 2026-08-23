@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
 
+    # When true (or non-production), OTP send endpoint returns debug_code in response.
+    OTP_DEBUG: bool = True
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @field_validator("DATABASE_URL")

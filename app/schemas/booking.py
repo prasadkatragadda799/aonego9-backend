@@ -52,9 +52,31 @@ class BookingStatusUpdate(BaseModel):
 
 class AdvancePayment(BaseModel):
     booking_id: str
-    inquiry_ref: str
+    inquiry_ref: str = ""
     amount: float = 5000.0
     method: str = "UPI"
+    receipt_image: str = ""
+
+
+class AdvanceRequestOut(BaseModel):
+    id: str
+    booking_id: str
+    user_id: str
+    client_name: str = ""
+    vendor_name: str = ""
+    inquiry_ref: str | None = None
+    amount: float
+    receipt_image: str
+    status: str
+    admin_note: str
+    created_at: datetime
+    reviewed_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class AdvanceReview(BaseModel):
+    admin_note: str = ""
 
 
 class BookingListOut(BaseModel):

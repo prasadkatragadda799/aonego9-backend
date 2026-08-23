@@ -22,6 +22,7 @@ class InquiryCreate(BaseModel):
     message: str = ""
     urgent: bool = False
     inquiry_ref: str
+    phone_otp: str = ""
 
 
 class InquiryOut(BaseModel):

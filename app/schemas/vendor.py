@@ -22,6 +22,8 @@ class VendorOut(BaseModel):
     total_earnings: float
     plan: str
     joined_at: datetime
+    phone_verified: bool = False
+    last_login_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

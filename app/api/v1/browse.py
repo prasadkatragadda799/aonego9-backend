@@ -9,11 +9,14 @@ from app.core.database import get_db
 from app.models.booking import Booking, BookingSource, BookingStatus
 from app.models.cms import Category
 from app.models.event import EventStatus, PlatformEvent
+from app.models.newsletter import NewsletterContribution, NewsletterIssue
 from app.models.notification import IconKind, Notification
 from app.models.user import ApprovalStatus, User
 from app.models.vendor import Vendor
 from app.schemas.browse import BrowseCategoryOut, InquiryCreate, InquiryOut, TickerItem
+from app.schemas.newsletter import NewsletterContributeIn, NewsletterIssueOut, NewsletterSubscribeIn
 from app.schemas.vendor import VendorPublicOut
+from app.services.otp_service import verify_otp
 
 router = APIRouter(prefix="/browse", tags=["browse"])
 
@@ -93,6 +96,47 @@ async def get_ticker(db: AsyncSession = Depends(get_db)):
     ]
 
 
+@router.get("/newsletters", response_model=list[NewsletterIssueOut])
+async def browse_newsletters(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(NewsletterIssue).order_by(NewsletterIssue.published_at.desc()))
+    return [NewsletterIssueOut.from_row(r) for r in result.scalars().all()]
+
+
+@router.post("/newsletter/subscribe", status_code=201)
+async def subscribe_newsletter(body: NewsletterSubscribeIn, db: AsyncSession = Depends(get_db)):
+    row = NewsletterContribution(
+        name=body.name,
+        email=body.email,
+        phone=body.phone,
+        city=body.city,
+        organisation="",
+        headline="Newsletter subscription",
+        story="",
+        status="subscribed",
+    )
+    db.add(row)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/newsletter/contribute", status_code=201)
+async def contribute_newsletter(body: NewsletterContributeIn, db: AsyncSession = Depends(get_db)):
+    row = NewsletterContribution(
+        name=body.name,
+        email=body.email,
+        phone=body.phone,
+        city=body.city,
+        organisation=body.organisation,
+        headline=body.headline,
+        story=body.story,
+        credentials_url=body.credentials_url,
+        status="pending",
+    )
+    db.add(row)
+    await db.commit()
+    return {"ok": True, "id": row.id}
+
+
 @router.post("/inquiry", response_model=InquiryOut, status_code=201)
 async def submit_inquiry(body: InquiryCreate, db: AsyncSession = Depends(get_db)):
     """
@@ -100,6 +144,14 @@ async def submit_inquiry(body: InquiryCreate, db: AsyncSession = Depends(get_db)
     creates a Notification for the vendor. The AO9-XXXXXX ref is generated
     client-side so it appears immediately in the user app before the round-trip.
     """
+    if body.phone.strip():
+        if not body.phone_otp.strip():
+            from fastapi import HTTPException
+            raise HTTPException(status_code=422, detail="Phone OTP required before submitting an inquiry")
+        if not await verify_otp(db, phone=body.phone, purpose="inquiry", code=body.phone_otp):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="Invalid or expired phone OTP")
+
     # Resolve vendor — fall back gracefully if vendor_id is unknown
     vendor_result = await db.execute(select(Vendor).where(Vendor.id == body.vendor_id))
     vendor = vendor_result.scalar_one_or_none()

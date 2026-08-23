@@ -370,15 +370,20 @@ async def delete_portfolio_item(
 
 # ── Admin vendor management ───────────────────────────────────
 
-@router.get("/admin", response_model=VendorListOut, dependencies=[Depends(get_current_admin)])
+@router.get("/admin", response_model=VendorListOut)
 async def admin_list_vendors(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: str | None = None,
     category: str | None = None,
+    city: str | None = None,
+    admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     q = select(Vendor)
+    scoped_city = (admin.admin_city or "").strip() or (city or "").strip()
+    if scoped_city:
+        q = q.where(Vendor.city.ilike(f"%{scoped_city}%"))
     if status:
         q = q.where(Vendor.status == ApprovalStatus(status))
     if category:
@@ -401,6 +406,9 @@ async def admin_get_vendor(vendor_id: str, db: AsyncSession = Depends(get_db)):
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
     return vendor_to_out(vendor)
+
+
+@router.get("/admin/{vendor_id}/portfolio", dependencies=[Depends(get_current_admin)])
 async def admin_get_vendor_portfolio(vendor_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Vendor).where(Vendor.id == vendor_id))
     vendor = result.scalar_one_or_none()
