@@ -16,6 +16,7 @@ from app.models.vendor import Vendor
 from app.schemas.browse import BrowseCategoryOut, InquiryCreate, InquiryOut, TickerItem
 from app.schemas.newsletter import NewsletterContributeIn, NewsletterIssueOut, NewsletterSubscribeIn
 from app.schemas.vendor import VendorPublicOut
+from app.schemas.vendor_serializers import vendor_to_public_out
 from app.services.otp_service import verify_otp
 
 router = APIRouter(prefix="/browse", tags=["browse"])
@@ -70,7 +71,7 @@ async def browse_listings(
             Vendor.company.ilike(f"%{filter}%"),
         ))
     result = await db.execute(q.offset((page - 1) * page_size).limit(page_size))
-    return result.scalars().all()
+    return [vendor_to_public_out(v) for v in result.scalars().all()]
 
 
 @router.get("/ticker", response_model=list[TickerItem])
