@@ -1,19 +1,31 @@
 import random
 import string
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_current_admin
 from app.models.booking import Booking, BookingSource, BookingStatus
 from app.models.cms import Category
+from app.models.directory import AdCreative, Lead, LogoPartner, Session as SessionModel, TeamMember
 from app.models.event import EventStatus, PlatformEvent
 from app.models.newsletter import NewsletterContribution, NewsletterIssue
 from app.models.notification import IconKind, Notification
 from app.models.user import ApprovalStatus, User
 from app.models.vendor import Vendor
 from app.schemas.browse import BrowseCategoryOut, InquiryCreate, InquiryOut, TickerItem
+from app.schemas.directory import (
+    AdCreativeOut,
+    LeadCreate,
+    LeadOut,
+    LeadStatusUpdate,
+    LogoPartnerOut,
+    TeamMemberOut,
+    lead_from_create,
+    lead_to_out,
+)
 from app.schemas.newsletter import NewsletterContributeIn, NewsletterIssueOut, NewsletterSubscribeIn
 from app.schemas.vendor import VendorPublicOut
 from app.schemas.vendor_serializers import vendor_to_public_out
@@ -217,3 +229,106 @@ async def submit_inquiry(body: InquiryCreate, db: AsyncSession = Depends(get_db)
         status="submitted",
         message=f"Your inquiry (ref: {body.inquiry_ref}) has been sent to the vendor.",
     )
+
+
+# ── Directory content (public reads) ────────────────────────────
+
+@router.get("/ads", response_model=list[AdCreativeOut])
+async def browse_ads(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(AdCreative).where(AdCreative.active == True))
+    return result.scalars().all()
+
+
+@router.get("/partners", response_model=list[LogoPartnerOut])
+async def browse_partners(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(LogoPartner).where(LogoPartner.published == True))
+    return result.scalars().all()
+
+
+@router.get("/team", response_model=list[TeamMemberOut])
+async def browse_team(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(TeamMember).where(TeamMember.published == True))
+    return result.scalars().all()
+
+
+@router.get("/updates")
+async def browse_updates(db: AsyncSession = Depends(get_db)):
+    """The notification bar feed — upcoming/live platform events plus
+    published sessions, collapsed to one shape and sorted by date."""
+    events_result = await db.execute(
+        select(PlatformEvent).where(PlatformEvent.status.in_([EventStatus.upcoming, EventStatus.live]))
+    )
+    sessions_result = await db.execute(select(SessionModel).where(SessionModel.published == True))
+
+    items = [
+        {
+            "id": e.id,
+            "kind": "event",
+            "division": "",
+            "title": e.title,
+            "city": e.city,
+            "state": "",
+            "date": e.date.isoformat(),
+            "emoji": "🎪",
+            "live": e.status == EventStatus.live or e.on_poster,
+        }
+        for e in events_result.scalars().all()
+    ] + [
+        {
+            "id": s.id,
+            "kind": s.mode,
+            "division": s.division,
+            "title": s.title,
+            "city": s.city,
+            "state": s.state,
+            "date": s.date,
+            "emoji": s.emoji,
+            "live": s.seats > 0 and 0 < s.seats_left <= s.seats * 0.2,
+        }
+        for s in sessions_result.scalars().all()
+    ]
+    items.sort(key=lambda i: i["date"] or "")
+    return items
+
+
+# ── Leads (contact / join us / apply / session sign-up) ──────────
+
+@router.post("/leads", response_model=LeadOut, status_code=201)
+async def submit_lead(body: LeadCreate, db: AsyncSession = Depends(get_db)):
+    row = lead_from_create(body)
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return lead_to_out(row)
+
+
+@router.get("/leads", response_model=list[LeadOut], dependencies=[Depends(get_current_admin)])
+async def admin_list_leads(
+    kind: str | None = None,
+    status: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    q = select(Lead)
+    if kind:
+        q = q.where(Lead.kind == kind)
+    if status:
+        q = q.where(Lead.status == status)
+    result = await db.execute(q.order_by(Lead.created_at.desc()))
+    return [lead_to_out(r) for r in result.scalars().all()]
+
+
+@router.patch("/leads/{lead_id}", response_model=LeadOut)
+async def admin_update_lead_status(
+    lead_id: str,
+    body: LeadStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(Lead).where(Lead.id == lead_id))
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    row.status = body.status
+    await db.commit()
+    await db.refresh(row)
+    return lead_to_out(row)

@@ -15,6 +15,8 @@ class CompCardOut(BaseModel):
     hair: str = ""
     eye: str = ""
     skin: str = ""
+    dob: str = ""
+    hair_length: str = ""
 
 
 class CompCardUpdate(BaseModel):
@@ -29,6 +31,8 @@ class CompCardUpdate(BaseModel):
     hair: str | None = None
     eye: str | None = None
     skin: str | None = None
+    dob: str | None = None
+    hair_length: str | None = None
 
 
 class VendorProfileDetailsOut(BaseModel):
@@ -47,6 +51,10 @@ class VendorProfileDetailsOut(BaseModel):
     spaces: list[dict] = Field(default_factory=list)
     equipment: list[dict] = Field(default_factory=list)
     reels: list[dict] = Field(default_factory=list)
+    awards: list[dict] = Field(default_factory=list)
+    brand_work: list[dict] = Field(default_factory=list)
+    projects: list[dict] = Field(default_factory=list)
+    socials: list[dict] = Field(default_factory=list)
 
 
 class VendorProfileDetailsUpdate(BaseModel):
@@ -64,6 +72,10 @@ class VendorProfileDetailsUpdate(BaseModel):
     spaces: list[dict] | None = None
     equipment: list[dict] | None = None
     reels: list[dict] | None = None
+    awards: list[dict] | None = None
+    brand_work: list[dict] | None = None
+    projects: list[dict] | None = None
+    socials: list[dict] | None = None
 
 
 def _loads(raw: str, fallback):
@@ -94,6 +106,8 @@ def details_to_out(row) -> VendorProfileDetailsOut:
             hair=row.hair,
             eye=row.eye,
             skin=row.skin,
+            dob=row.dob,
+            hair_length=row.hair_length,
         ),
         stats=_loads(row.stats_json, []),
         tags=_loads(row.tags_json, []),
@@ -104,6 +118,10 @@ def details_to_out(row) -> VendorProfileDetailsOut:
         spaces=_loads(row.spaces_json, []),
         equipment=_loads(row.equipment_json, []),
         reels=_loads(row.reels_json, []),
+        awards=_loads(row.awards_json, []),
+        brand_work=_loads(row.brand_work_json, []),
+        projects=_loads(row.projects_json, []),
+        socials=_loads(row.socials_json, []),
     )
 
 
@@ -124,6 +142,10 @@ def apply_update(row, body: VendorProfileDetailsUpdate) -> None:
         "spaces": "spaces_json",
         "equipment": "equipment_json",
         "reels": "reels_json",
+        "awards": "awards_json",
+        "brand_work": "brand_work_json",
+        "projects": "projects_json",
+        "socials": "socials_json",
     }
     for key, value in data.items():
         if key in json_map:

@@ -26,6 +26,8 @@ class VendorProfileDetails(Base):
     hair: Mapped[str] = mapped_column(String(40), default="")
     eye: Mapped[str] = mapped_column(String(40), default="")
     skin: Mapped[str] = mapped_column(String(40), default="")
+    dob: Mapped[str] = mapped_column(String(20), default="")
+    hair_length: Mapped[str] = mapped_column(String(40), default="")
     # JSON blobs — stored as text, parsed in the API layer
     stats_json: Mapped[str] = mapped_column(Text, default="[]")
     tags_json: Mapped[str] = mapped_column(Text, default="[]")
@@ -36,5 +38,9 @@ class VendorProfileDetails(Base):
     spaces_json: Mapped[str] = mapped_column(Text, default="[]")
     equipment_json: Mapped[str] = mapped_column(Text, default="[]")
     reels_json: Mapped[str] = mapped_column(Text, default="[]")
+    awards_json: Mapped[str] = mapped_column(Text, default="[]")
+    brand_work_json: Mapped[str] = mapped_column(Text, default="[]")
+    projects_json: Mapped[str] = mapped_column(Text, default="[]")
+    socials_json: Mapped[str] = mapped_column(Text, default="[]")
 
     vendor = relationship("Vendor", back_populates="profile_details")

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_admin
 from app.models.cms import Category, CmsBanner
+from app.models.directory import AdCreative, LogoPartner, SocialAccount, TeamMember
 from app.models.newsletter import NewsletterContribution, NewsletterIssue
 from app.models.user import User
 from app.schemas.cms import (
@@ -16,6 +17,22 @@ from app.schemas.cms import (
     CmsBannerCreate,
     CmsBannerOut,
     CmsBannerUpdate,
+)
+from app.schemas.directory import (
+    AdCreativeCreate,
+    AdCreativeOut,
+    AdCreativeToggle,
+    AdCreativeUpdate,
+    LogoPartnerCreate,
+    LogoPartnerOut,
+    LogoPartnerUpdate,
+    PublishToggle,
+    SocialAccountCreate,
+    SocialAccountOut,
+    SocialAccountUpdate,
+    TeamMemberCreate,
+    TeamMemberOut,
+    TeamMemberUpdate,
 )
 from app.schemas.newsletter import (
     NewsletterContributionOut,
@@ -211,3 +228,250 @@ async def list_contributions(
         select(NewsletterContribution).order_by(NewsletterContribution.created_at.desc())
     )
     return result.scalars().all()
+
+
+# ── Ads ──────────────────────────────────────────────────────────
+
+@router.get("/ads", response_model=list[AdCreativeOut])
+async def list_ads(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(AdCreative).order_by(AdCreative.created_at.desc()))
+    return result.scalars().all()
+
+
+@router.post("/ads", response_model=AdCreativeOut, status_code=201, dependencies=[Depends(get_current_admin)])
+async def create_ad(body: AdCreativeCreate, db: AsyncSession = Depends(get_db)):
+    row = AdCreative(**body.model_dump())
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.put("/ads/{ad_id}", response_model=AdCreativeOut)
+async def update_ad(
+    ad_id: str,
+    body: AdCreativeUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(AdCreative).where(AdCreative.id == ad_id))
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    for field, value in body.model_dump(exclude_none=True).items():
+        setattr(row, field, value)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.patch("/ads/{ad_id}", response_model=AdCreativeOut)
+async def toggle_ad_active(
+    ad_id: str,
+    body: AdCreativeToggle,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(AdCreative).where(AdCreative.id == ad_id))
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    row.active = body.active
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.delete("/ads/{ad_id}", status_code=204)
+async def delete_ad(
+    ad_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(AdCreative).where(AdCreative.id == ad_id))
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    await db.delete(row)
+    await db.commit()
+
+
+# ── Partners ─────────────────────────────────────────────────────
+
+@router.get("/partners", response_model=list[LogoPartnerOut])
+async def list_partners(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(LogoPartner).order_by(LogoPartner.created_at.desc()))
+    return result.scalars().all()
+
+
+@router.post("/partners", response_model=LogoPartnerOut, status_code=201, dependencies=[Depends(get_current_admin)])
+async def create_partner(body: LogoPartnerCreate, db: AsyncSession = Depends(get_db)):
+    row = LogoPartner(**body.model_dump())
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.put("/partners/{partner_id}", response_model=LogoPartnerOut)
+async def update_partner(
+    partner_id: str,
+    body: LogoPartnerUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(LogoPartner).where(LogoPartner.id == partner_id))
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Partner not found")
+    for field, value in body.model_dump(exclude_none=True).items():
+        setattr(row, field, value)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.patch("/partners/{partner_id}", response_model=LogoPartnerOut)
+async def toggle_partner_published(
+    partner_id: str,
+    body: PublishToggle,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(LogoPartner).where(LogoPartner.id == partner_id))
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Partner not found")
+    row.published = body.published
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.delete("/partners/{partner_id}", status_code=204)
+async def delete_partner(
+    partner_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(LogoPartner).where(LogoPartner.id == partner_id))
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Partner not found")
+    await db.delete(row)
+    await db.commit()
+
+
+# ── Team ─────────────────────────────────────────────────────────
+
+@router.get("/team", response_model=list[TeamMemberOut])
+async def list_team(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(TeamMember).order_by(TeamMember.created_at.desc()))
+    return result.scalars().all()
+
+
+@router.post("/team", response_model=TeamMemberOut, status_code=201, dependencies=[Depends(get_current_admin)])
+async def create_team_member(body: TeamMemberCreate, db: AsyncSession = Depends(get_db)):
+    row = TeamMember(**body.model_dump())
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.put("/team/{member_id}", response_model=TeamMemberOut)
+async def update_team_member(
+    member_id: str,
+    body: TeamMemberUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(TeamMember).where(TeamMember.id == member_id))
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Team member not found")
+    for field, value in body.model_dump(exclude_none=True).items():
+        setattr(row, field, value)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.patch("/team/{member_id}", response_model=TeamMemberOut)
+async def toggle_team_member_published(
+    member_id: str,
+    body: PublishToggle,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(TeamMember).where(TeamMember.id == member_id))
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Team member not found")
+    row.published = body.published
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.delete("/team/{member_id}", status_code=204)
+async def delete_team_member(
+    member_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(TeamMember).where(TeamMember.id == member_id))
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Team member not found")
+    await db.delete(row)
+    await db.commit()
+
+
+# ── Social accounts (admin-only — no public consumer) ────────────
+
+@router.get("/social", response_model=list[SocialAccountOut], dependencies=[Depends(get_current_admin)])
+async def list_social_accounts(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(SocialAccount).order_by(SocialAccount.created_at.desc()))
+    return result.scalars().all()
+
+
+@router.post("/social", response_model=SocialAccountOut, status_code=201, dependencies=[Depends(get_current_admin)])
+async def create_social_account(body: SocialAccountCreate, db: AsyncSession = Depends(get_db)):
+    row = SocialAccount(**body.model_dump())
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.put("/social/{account_id}", response_model=SocialAccountOut)
+async def update_social_account(
+    account_id: str,
+    body: SocialAccountUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Social account not found")
+    for field, value in body.model_dump(exclude_none=True).items():
+        setattr(row, field, value)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.delete("/social/{account_id}", status_code=204)
+async def delete_social_account(
+    account_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Social account not found")
+    await db.delete(row)
+    await db.commit()

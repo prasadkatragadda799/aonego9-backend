@@ -12,6 +12,7 @@ from app.models.subscription import SubscriptionPlan, VendorSubscription, Billin
 from app.models.newsletter import NewsletterIssue, NewsletterContribution
 from app.models.advance_request import AdvancePaymentRequest
 from app.models.phone_otp import PhoneOtp
+from app.models.directory import AdCreative, Session, LogoPartner, TeamMember, SocialAccount, Lead
 
 __all__ = [
     "User", "UserRole", "ApprovalStatus",
@@ -26,4 +27,5 @@ __all__ = [
     "SubscriptionPlan", "VendorSubscription", "BillingEntry", "SupportTicket",
     "NewsletterIssue", "NewsletterContribution",
     "AdvancePaymentRequest", "PhoneOtp",
+    "AdCreative", "Session", "LogoPartner", "TeamMember", "SocialAccount", "Lead",
 ]
