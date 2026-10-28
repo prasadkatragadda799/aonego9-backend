@@ -74,8 +74,12 @@ async def payment_info(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(PaymentSettings).where(PaymentSettings.id == "default"))
     settings_row = result.scalar_one_or_none()
     if not settings_row:
-        return PaymentSettingsOut(upi_id="", payee_name="AOneGo9")
-    return settings_row
+        return PaymentSettingsOut(upi_id="", payee_name="AOneGo9", advance_amount=5000.0)
+    return PaymentSettingsOut(
+        upi_id=settings_row.upi_id,
+        payee_name=settings_row.payee_name,
+        advance_amount=float(getattr(settings_row, "advance_amount", 5000.0) or 5000.0),
+    )
 
 
 # ── Vendor / user (self) ─────────────────────────────────────────
@@ -262,9 +266,14 @@ async def admin_set_payment_info(body: PaymentSettingsIn, db: AsyncSession = Dep
         db.add(row)
     row.upi_id = body.upi_id
     row.payee_name = body.payee_name
+    row.advance_amount = body.advance_amount
     await db.commit()
     await db.refresh(row)
-    return row
+    return PaymentSettingsOut(
+        upi_id=row.upi_id,
+        payee_name=row.payee_name,
+        advance_amount=float(row.advance_amount or 5000.0),
+    )
 
 
 @router.get(

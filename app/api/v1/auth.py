@@ -5,6 +5,7 @@ from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
     create_access_token,
@@ -89,7 +90,7 @@ async def register_vendor(body: RegisterVendorRequest, db: AsyncSession = Depend
         city=body.city,
         category=body.category,
         password_hash=hash_password(body.password),
-        status=ApprovalStatus.approved,  # auto-approve for demo; admin can suspend later
+        status=ApprovalStatus.approved if not settings.is_production else ApprovalStatus.pending,
         phone_verified=bool(body.phone.strip()),
     )
     db.add(vendor)
@@ -114,6 +115,8 @@ async def login_user(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     user = result.scalar_one_or_none()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    if user.status != ApprovalStatus.approved:
+        raise HTTPException(status_code=403, detail="Account is pending approval or suspended")
     return TokenResponse(
         access_token=create_access_token(user.id, "user"),
         refresh_token=create_refresh_token(user.id, "user"),
@@ -127,6 +130,8 @@ async def login_vendor(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     vendor = result.scalar_one_or_none()
     if not vendor or not verify_password(body.password, vendor.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    if vendor.status != ApprovalStatus.approved:
+        raise HTTPException(status_code=403, detail="Vendor account is pending approval or suspended")
     vendor.last_login_at = datetime.now(timezone.utc)
     await db.commit()
     return TokenResponse(
@@ -151,13 +156,29 @@ async def login_admin(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(body: RefreshRequest):
+async def refresh_token(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     try:
         payload = decode_token(body.refresh_token)
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="Not a refresh token")
         sub = payload["sub"]
         role = payload["role"]
+        if role == "user":
+            row = await db.execute(select(User).where(User.id == sub))
+            user = row.scalar_one_or_none()
+            if not user or user.status != ApprovalStatus.approved:
+                raise HTTPException(status_code=401, detail="Account no longer active")
+        elif role == "vendor":
+            row = await db.execute(select(Vendor).where(Vendor.id == sub))
+            vendor = row.scalar_one_or_none()
+            if not vendor or vendor.status != ApprovalStatus.approved:
+                raise HTTPException(status_code=401, detail="Account no longer active")
+        elif role == "admin":
+            row = await db.execute(select(User).where(User.id == sub, User.is_admin == True))
+            if not row.scalar_one_or_none():
+                raise HTTPException(status_code=401, detail="Admin account not found")
+        else:
+            raise HTTPException(status_code=401, detail="Invalid token role")
         return TokenResponse(
             access_token=create_access_token(sub, role),
             refresh_token=create_refresh_token(sub, role),

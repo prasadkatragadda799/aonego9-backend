@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_admin, get_current_user, get_current_vendor
+from app.models.booking import Booking, BookingStatus
 from app.models.review import Review
 from app.models.user import ApprovalStatus, User
 from app.models.vendor import Vendor
@@ -96,6 +97,34 @@ async def create_review(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    vend_result = await db.execute(
+        select(Vendor).where(Vendor.id == body.vendor_id, Vendor.status == ApprovalStatus.approved)
+    )
+    if not vend_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    if body.booking_id:
+        booking_result = await db.execute(
+            select(Booking).where(
+                Booking.id == body.booking_id,
+                Booking.client_id == current_user.id,
+                Booking.vendor_id == body.vendor_id,
+            )
+        )
+        booking = booking_result.scalar_one_or_none()
+        if not booking:
+            raise HTTPException(status_code=404, detail="Booking not found")
+        if booking.status not in (BookingStatus.completed, BookingStatus.in_progress):
+            raise HTTPException(status_code=422, detail="Reviews are allowed after work has started or completed")
+        dup = await db.execute(
+            select(Review).where(
+                Review.author_id == current_user.id,
+                Review.booking_id == body.booking_id,
+            )
+        )
+        if dup.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="You already reviewed this booking")
+
     review = Review(
         author_id=current_user.id,
         vendor_id=body.vendor_id,

@@ -60,7 +60,7 @@ async def ensure_subscription_defaults(db: AsyncSession) -> None:
             ))
     settings_row = (await db.execute(select(PaymentSettings).where(PaymentSettings.id == "default"))).scalar_one_or_none()
     if not settings_row:
-        db.add(PaymentSettings(id="default", upi_id="", payee_name="AOneGo9"))
+        db.add(PaymentSettings(id="default", upi_id="", payee_name="AOneGo9", advance_amount=5000.0))
     try:
         await db.commit()
     except IntegrityError:

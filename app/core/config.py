@@ -74,6 +74,12 @@ class Settings(BaseSettings):
                 )
             if self.SECRET_KEY == "change-me":
                 raise RuntimeError("SECRET_KEY is still the default value in a production environment.")
+            if self.ADMIN_PASSWORD == "demo1234":
+                raise RuntimeError("ADMIN_PASSWORD is still the default demo value in production.")
+            if self.OTP_DEBUG:
+                raise RuntimeError("OTP_DEBUG must be false in production.")
+            if self.CORS_ORIGINS.strip() == "*":
+                raise RuntimeError("Set CORS_ORIGINS to explicit frontend URLs in production.")
         return self
 
 

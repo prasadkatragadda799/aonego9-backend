@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import decode_token
-from app.models.user import User
+from app.models.user import ApprovalStatus, User
 from app.models.vendor import Vendor
 
 bearer_scheme = HTTPBearer()
@@ -16,9 +16,12 @@ async def _get_token_payload(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ) -> dict:
     try:
-        return decode_token(credentials.credentials)
+        payload = decode_token(credentials.credentials)
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+    if payload.get("type") == "refresh":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Use an access token, not a refresh token")
+    return payload
 
 
 async def get_current_user(
@@ -31,6 +34,8 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    if user.status != ApprovalStatus.approved:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is not active")
     return user
 
 
@@ -44,6 +49,8 @@ async def get_current_vendor(
     vendor = result.scalar_one_or_none()
     if not vendor:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Vendor not found")
+    if vendor.status != ApprovalStatus.approved:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Vendor account is not active")
     return vendor
 
 

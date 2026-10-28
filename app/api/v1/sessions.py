@@ -94,9 +94,13 @@ async def delete_session(
 
 @router.post("/{session_id}/register", status_code=201)
 async def register_for_session(session_id: str, body: SessionRegister, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(SessionModel).where(SessionModel.id == session_id))
+    result = await db.execute(
+        select(SessionModel).where(SessionModel.id == session_id).with_for_update()
+    )
     row = result.scalar_one_or_none()
     if not row:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not row.published:
         raise HTTPException(status_code=404, detail="Session not found")
     if row.seats > 0 and row.seats_left <= 0:
         raise HTTPException(status_code=409, detail="This session is sold out")

@@ -1,11 +1,27 @@
 from datetime import datetime, timedelta, timezone
 import random
+import secrets
+import time
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.phone_otp import PhoneOtp
+
+# Per-process send throttle (best-effort; use Redis in multi-worker prod).
+_otp_send_log: dict[str, list[float]] = {}
+
+
+def _enforce_otp_rate_limit(phone: str) -> None:
+    now = time.time()
+    window = _otp_send_log.setdefault(phone, [])
+    window[:] = [t for t in window if now - t < 3600]
+    if len(window) >= 5:
+        raise ValueError("Too many OTP requests — try again in an hour")
+    if window and now - window[-1] < 60:
+        raise ValueError("Wait a minute before requesting another OTP")
+    window.append(now)
 
 
 def _normalize_phone(phone: str) -> str:
@@ -21,6 +37,7 @@ async def send_otp(db: AsyncSession, *, phone: str, purpose: str) -> dict:
     normalized = _normalize_phone(phone)
     if len(normalized) < 10:
         raise ValueError("Invalid phone number")
+    _enforce_otp_rate_limit(normalized)
     code = f"{random.randint(0, 999999):06d}"
     expires = datetime.now(timezone.utc) + timedelta(minutes=10)
     await db.execute(delete(PhoneOtp).where(PhoneOtp.phone == normalized, PhoneOtp.purpose == purpose))
@@ -40,7 +57,7 @@ async def verify_otp(db: AsyncSession, *, phone: str, purpose: str, code: str) -
     row = result.scalar_one_or_none()
     if not row:
         return False
-    if row.code != code.strip():
+    if not secrets.compare_digest(row.code, code.strip()):
         return False
     if row.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
         return False

@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SubscriptionPlanOut(BaseModel):
@@ -95,6 +95,7 @@ class SubscriptionReviewIn(BaseModel):
 class PaymentSettingsOut(BaseModel):
     upi_id: str
     payee_name: str
+    advance_amount: float = 5000.0
 
     model_config = {"from_attributes": True}
 
@@ -102,6 +103,7 @@ class PaymentSettingsOut(BaseModel):
 class PaymentSettingsIn(BaseModel):
     upi_id: str
     payee_name: str = "AOneGo9"
+    advance_amount: float = Field(default=5000.0, gt=0)
 
 
 class AdminAssignSubscriptionIn(BaseModel):

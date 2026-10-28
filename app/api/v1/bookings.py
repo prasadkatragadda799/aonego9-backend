@@ -31,6 +31,21 @@ _VALID_STATUS_TRANSITIONS: dict[BookingStatus, list[BookingStatus]] = {
     BookingStatus.disputed: [BookingStatus.completed, BookingStatus.cancelled],
 }
 
+# Clients and vendors may only apply transitions that match their role.
+_ROLE_STATUS_TRANSITIONS: dict[str, dict[BookingStatus, list[BookingStatus]]] = {
+    "user": {
+        BookingStatus.requested: [BookingStatus.cancelled],
+        BookingStatus.confirmed: [BookingStatus.cancelled],
+        BookingStatus.in_progress: [BookingStatus.disputed],
+    },
+    "vendor": {
+        BookingStatus.requested: [BookingStatus.confirmed, BookingStatus.cancelled],
+        BookingStatus.confirmed: [BookingStatus.in_progress, BookingStatus.cancelled],
+        BookingStatus.in_progress: [BookingStatus.completed, BookingStatus.disputed],
+        BookingStatus.disputed: [BookingStatus.completed, BookingStatus.cancelled],
+    },
+}
+
 
 def _to_out(b: Booking, client_name: str = "", vendor_name: str = "") -> BookingOut:
     return BookingOut(
@@ -269,9 +284,18 @@ async def update_booking_status(
     booking = result.scalar_one_or_none()
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
+    role = payload.get("role")
+    sub = payload.get("sub")
+    if role == "user" and booking.client_id != sub:
+        raise HTTPException(status_code=403, detail="Not your booking")
+    if role == "vendor" and booking.vendor_id != sub:
+        raise HTTPException(status_code=403, detail="Not your booking")
     new_status = BookingStatus(body.status)
-    allowed = _VALID_STATUS_TRANSITIONS.get(booking.status, [])
-    if new_status not in allowed and payload.get("role") != "admin":
+    if role == "admin":
+        allowed = _VALID_STATUS_TRANSITIONS.get(booking.status, [])
+    else:
+        allowed = _ROLE_STATUS_TRANSITIONS.get(role or "", {}).get(booking.status, [])
+    if new_status not in allowed:
         raise HTTPException(status_code=422, detail=f"Cannot transition from {booking.status.value} to {body.status}")
     booking.status = new_status
     booking.updated_at = datetime.now(timezone.utc)
@@ -294,6 +318,11 @@ async def request_advance(
     booking = result.scalar_one_or_none()
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
+    if body.amount <= 0:
+        raise HTTPException(status_code=422, detail="Advance amount must be positive")
+    balance_due = max(0.0, booking.amount - booking.advance_paid)
+    if booking.amount > 0 and body.amount > balance_due:
+        raise HTTPException(status_code=422, detail=f"Amount exceeds balance due ({balance_due:.0f})")
     pending = await db.execute(
         select(AdvancePaymentRequest).where(
             AdvancePaymentRequest.booking_id == body.booking_id,
@@ -379,13 +408,17 @@ async def admin_approve_advance(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(AdvancePaymentRequest).where(AdvancePaymentRequest.id == request_id))
+    result = await db.execute(
+        select(AdvancePaymentRequest).where(AdvancePaymentRequest.id == request_id).with_for_update()
+    )
     row = result.scalar_one_or_none()
     if not row:
         raise HTTPException(status_code=404, detail="Advance request not found")
     if row.status != "pending":
         raise HTTPException(status_code=409, detail=f"Request already {row.status}")
-    booking_result = await db.execute(select(Booking).where(Booking.id == row.booking_id))
+    booking_result = await db.execute(
+        select(Booking).where(Booking.id == row.booking_id).with_for_update()
+    )
     booking = booking_result.scalar_one_or_none()
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")

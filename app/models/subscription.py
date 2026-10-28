@@ -85,6 +85,7 @@ class PaymentSettings(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default="default")
     upi_id: Mapped[str] = mapped_column(String(100), default="")
     payee_name: Mapped[str] = mapped_column(String(100), default="AOneGo9")
+    advance_amount: Mapped[float] = mapped_column(Float, default=5000.0)
 
 
 class BillingEntry(Base):

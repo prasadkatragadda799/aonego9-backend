@@ -46,7 +46,7 @@ router = APIRouter(prefix="/cms", tags=["cms"])
 
 # ── Banners ──────────────────────────────────────────────────
 
-@router.get("/banners", response_model=list[CmsBannerOut])
+@router.get("/banners", response_model=list[CmsBannerOut], dependencies=[Depends(get_current_admin)])
 async def list_banners(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(CmsBanner).order_by(CmsBanner.sort_order))
     return result.scalars().all()
@@ -95,7 +95,7 @@ async def delete_banner(
 
 # ── Categories ───────────────────────────────────────────────
 
-@router.get("/categories", response_model=list[CategoryOut])
+@router.get("/categories", response_model=list[CategoryOut], dependencies=[Depends(get_current_admin)])
 async def list_categories(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Category).order_by(Category.sort_order))
     return result.scalars().all()
@@ -147,7 +147,7 @@ async def toggle_category(
 # ── Newsletter ───────────────────────────────────────────────
 
 
-@router.get("/newsletters", response_model=list[NewsletterIssueOut])
+@router.get("/newsletters", response_model=list[NewsletterIssueOut], dependencies=[Depends(get_current_admin)])
 async def list_newsletters(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(NewsletterIssue).order_by(NewsletterIssue.published_at.desc()))
     return [NewsletterIssueOut.from_row(r) for r in result.scalars().all()]
@@ -232,7 +232,7 @@ async def list_contributions(
 
 # ── Ads ──────────────────────────────────────────────────────────
 
-@router.get("/ads", response_model=list[AdCreativeOut])
+@router.get("/ads", response_model=list[AdCreativeOut], dependencies=[Depends(get_current_admin)])
 async def list_ads(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(AdCreative).order_by(AdCreative.created_at.desc()))
     return result.scalars().all()
@@ -298,7 +298,7 @@ async def delete_ad(
 
 # ── Partners ─────────────────────────────────────────────────────
 
-@router.get("/partners", response_model=list[LogoPartnerOut])
+@router.get("/partners", response_model=list[LogoPartnerOut], dependencies=[Depends(get_current_admin)])
 async def list_partners(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(LogoPartner).order_by(LogoPartner.created_at.desc()))
     return result.scalars().all()
@@ -364,7 +364,7 @@ async def delete_partner(
 
 # ── Team ─────────────────────────────────────────────────────────
 
-@router.get("/team", response_model=list[TeamMemberOut])
+@router.get("/team", response_model=list[TeamMemberOut], dependencies=[Depends(get_current_admin)])
 async def list_team(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(TeamMember).order_by(TeamMember.created_at.desc()))
     return result.scalars().all()

@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ReviewOut(BaseModel):
@@ -19,8 +19,8 @@ class ReviewOut(BaseModel):
 class ReviewCreate(BaseModel):
     vendor_id: str
     booking_id: str | None = None
-    stars: int
-    text: str
+    stars: int = Field(ge=1, le=5)
+    text: str = Field(min_length=1, max_length=5000)
 
 
 class ReviewReply(BaseModel):
