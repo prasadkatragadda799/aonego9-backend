@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 import enum as _enum
-from sqlalchemy import Boolean, DateTime, Enum, Integer, String
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -26,4 +26,7 @@ class PlatformEvent(Base):
     status: Mapped[EventStatus] = mapped_column(Enum(EventStatus), default=EventStatus.upcoming)
     on_poster: Mapped[bool] = mapped_column(Boolean, default=False)
     registrations: Mapped[int] = mapped_column(Integer, default=0)
+    venue: Mapped[str] = mapped_column(String(200), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    image_url: Mapped[str] = mapped_column(String(500), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

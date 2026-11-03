@@ -3,6 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.utils.enums import parse_enum
 from app.core.deps import get_current_admin, get_current_user
 from app.models.user import ApprovalStatus, User
 from app.schemas.user import UserListOut, UserOut, UserStatusUpdate, UserUpdate
@@ -36,12 +37,12 @@ async def list_users(
     role: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    q = select(User)
+    q = select(User).where(User.is_admin == False)  # noqa: E712 — admins are listed under /admins
     if status:
-        q = q.where(User.status == ApprovalStatus(status))
+        q = q.where(User.status == parse_enum(ApprovalStatus, status))
     if role:
         from app.models.user import UserRole
-        q = q.where(User.role == UserRole(role))
+        q = q.where(User.role == parse_enum(UserRole, role, "role"))
     total_result = await db.execute(select(func.count()).select_from(q.subquery()))
     total = total_result.scalar_one()
     result = await db.execute(q.offset((page - 1) * page_size).limit(page_size))
@@ -69,7 +70,7 @@ async def update_user_status(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    user.status = ApprovalStatus(body.status)
+    user.status = parse_enum(ApprovalStatus, body.status)
     await db.commit()
     await db.refresh(user)
     return user

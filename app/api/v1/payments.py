@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.services.ledger import settle_due_earnings
+from app.utils.enums import parse_enum
 from app.core.deps import get_current_admin, get_current_vendor
 from app.models.payment import EarningTxn, PaymentStatus, PaymentTxn, TxnType
 from app.models.vendor import Vendor
@@ -26,11 +28,12 @@ async def admin_list_payments(
     status: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
+    await settle_due_earnings(db)
     q = select(PaymentTxn)
     if type:
         q = q.where(PaymentTxn.type == TxnType(type))
     if status:
-        q = q.where(PaymentTxn.status == PaymentStatus(status))
+        q = q.where(PaymentTxn.status == parse_enum(PaymentStatus, status))
     total_result = await db.execute(select(func.count()).select_from(q.subquery()))
     total = total_result.scalar_one()
     result = await db.execute(q.order_by(PaymentTxn.date.desc()).offset((page - 1) * page_size).limit(page_size))
@@ -45,6 +48,7 @@ async def list_earnings(
     vendor: Vendor = Depends(get_current_vendor),
     db: AsyncSession = Depends(get_db),
 ):
+    await settle_due_earnings(db, vendor.id)
     q = select(EarningTxn).where(EarningTxn.vendor_id == vendor.id)
     all_result = await db.execute(q)
     all_txns = all_result.scalars().all()
@@ -67,8 +71,11 @@ async def list_earnings(
 
 @router.post("/payout", dependencies=[Depends(get_current_admin)])
 async def trigger_payout(body: PayoutRequest, db: AsyncSession = Depends(get_db)):
+    vendor = (await db.execute(select(Vendor).where(Vendor.id == body.vendor_id))).scalar_one_or_none()
+    if vendor is None:
+        raise HTTPException(status_code=404, detail="Vendor not found")
     txn = PaymentTxn(
-        party=body.vendor_id,
+        party=vendor.company or vendor.name,
         type=TxnType.payout,
         amount=body.amount,
         status=PaymentStatus.payout,

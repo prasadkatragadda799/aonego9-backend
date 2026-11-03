@@ -1,3 +1,4 @@
+import json
 import random
 import string
 from datetime import datetime, timezone, timedelta
@@ -6,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import get_current_admin
+from app.core.deps import get_current_admin, get_optional_payload
 from app.models.booking import Booking, BookingSource, BookingStatus
 from app.models.cms import Category
 from app.models.directory import AdCreative, Lead, LogoPartner, Session as SessionModel, TeamMember
@@ -29,6 +30,7 @@ from app.schemas.directory import (
 from app.schemas.newsletter import NewsletterContributeIn, NewsletterIssueOut, NewsletterSubscribeIn
 from app.schemas.vendor import VendorPublicOut
 from app.schemas.vendor_serializers import vendor_to_public_out
+from app.services.messaging import open_inquiry_thread
 from app.services.otp_service import verify_otp
 
 router = APIRouter(prefix="/browse", tags=["browse"])
@@ -141,7 +143,16 @@ async def contribute_newsletter(body: NewsletterContributeIn, db: AsyncSession =
         city=body.city,
         organisation=body.organisation,
         headline=body.headline,
-        story=body.story,
+        story="\n\n".join(
+            part
+            for part in [
+                body.story,
+                f"Role: {body.role}" if body.role else "",
+                f"Section: {body.kind}" if body.kind else "",
+                f"Image: {body.image_url}" if body.image_url else "",
+            ]
+            if part
+        ),
         credentials_url=body.credentials_url,
         status="pending",
     )
@@ -151,7 +162,11 @@ async def contribute_newsletter(body: NewsletterContributeIn, db: AsyncSession =
 
 
 @router.post("/inquiry", response_model=InquiryOut, status_code=201)
-async def submit_inquiry(body: InquiryCreate, db: AsyncSession = Depends(get_db)):
+async def submit_inquiry(
+    body: InquiryCreate,
+    db: AsyncSession = Depends(get_db),
+    payload: dict | None = Depends(get_optional_payload),
+):
     """
     Persists the inquiry as a Booking (status=requested, source=inquiry) and
     creates a Notification for the vendor. The AO9-XXXXXX ref is generated
@@ -159,10 +174,8 @@ async def submit_inquiry(body: InquiryCreate, db: AsyncSession = Depends(get_db)
     """
     if body.phone.strip():
         if not body.phone_otp.strip():
-            from fastapi import HTTPException
             raise HTTPException(status_code=422, detail="Phone OTP required before submitting an inquiry")
         if not await verify_otp(db, phone=body.phone, purpose="inquiry", code=body.phone_otp):
-            from fastapi import HTTPException
             raise HTTPException(status_code=400, detail="Invalid or expired phone OTP")
 
     vendor_result = await db.execute(
@@ -172,27 +185,37 @@ async def submit_inquiry(body: InquiryCreate, db: AsyncSession = Depends(get_db)
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
 
-    # Resolve or create a guest user record for the inquirer
-    user_result = await db.execute(select(User).where(User.email == body.email))
-    user = user_result.scalar_one_or_none()
-    if user:
-        raise HTTPException(
-            status_code=409,
-            detail="An account exists for this email — sign in to send inquiries under your account.",
-        )
-    from app.core.security import hash_password
-    import uuid
+    # A signed-in client's inquiry belongs to their own account — they can
+    # then follow it and pay the advance. Before this, every signed-in client
+    # was rejected with 409 because their email already had an account.
+    user = None
+    if payload and payload.get("role") == "user":
+        user = (await db.execute(select(User).where(User.id == payload.get("sub")))).scalar_one_or_none()
+    if user is None:
+        # Signed out: reuse an earlier guest record for this email, or create one.
+        user = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
+        if user and not user.is_guest:
+            raise HTTPException(
+                status_code=409,
+                detail="An account exists for this email — sign in to send inquiries under your account.",
+            )
+    if user is None:
+        from app.core.security import hash_password
+        import uuid
 
-    user = User(
-        id=f"U-{uuid.uuid4().hex[:8].upper()}",
-        name=body.name,
-        email=body.email,
-        phone=body.phone,
-        password_hash=hash_password(uuid.uuid4().hex),  # random — guest account
-        status=ApprovalStatus.approved,
-    )
-    db.add(user)
-    await db.flush()
+        user = User(
+            id=f"U-{uuid.uuid4().hex[:8].upper()}",
+            name=body.name,
+            email=body.email,
+            phone=body.phone,
+            password_hash=hash_password(uuid.uuid4().hex),  # random until claimed
+            status=ApprovalStatus.approved,
+            is_guest=True,
+        )
+        db.add(user)
+        await db.flush()
+    elif user.is_guest and body.phone.strip() and not user.phone:
+        user.phone = body.phone
 
     # Parse preferred date — default to 7 days from now
     try:
@@ -210,7 +233,7 @@ async def submit_inquiry(body: InquiryCreate, db: AsyncSession = Depends(get_db)
         status=BookingStatus.requested,
         source=BookingSource.inquiry,
         inquiry_ref=body.inquiry_ref,
-        location=body.phone,  # store phone in location for guest users
+        location="",  # the client's phone reaches the vendor as client_phone
         notes=body.message,
     )
     db.add(booking)
@@ -224,6 +247,16 @@ async def submit_inquiry(body: InquiryCreate, db: AsyncSession = Depends(get_db)
         unread=True,
     )
     db.add(notif)
+
+    # Open (or reuse) the vendor-client conversation with the inquiry as its
+    # first message, so the vendor console's Messages has something to reply
+    # to — nothing created threads before.
+    await open_inquiry_thread(
+        db,
+        vendor_id=body.vendor_id,
+        client=user,
+        text=f"Inquiry {body.inquiry_ref}: {body.message.strip() or body.category}",
+    )
 
     await db.commit()
     await db.refresh(booking)
@@ -300,8 +333,25 @@ async def browse_updates(db: AsyncSession = Depends(get_db)):
 # ── Leads (contact / join us / apply / session sign-up) ──────────
 
 @router.post("/leads", response_model=LeadOut, status_code=201)
-async def submit_lead(body: LeadCreate, db: AsyncSession = Depends(get_db)):
+async def submit_lead(
+    body: LeadCreate,
+    db: AsyncSession = Depends(get_db),
+    payload: dict | None = Depends(get_optional_payload),
+):
     row = lead_from_create(body)
+    # Requests from the vendor console (payouts, KYC documents, support) act
+    # on a vendor account, so the identity comes from the signed-in token —
+    # never from the request body, which anyone could forge.
+    details = json.loads(row.details_json or "{}")
+    details.pop("vendor_id", None)
+    if payload and payload.get("role") == "vendor":
+        vendor = (await db.execute(select(Vendor).where(Vendor.id == payload.get("sub")))).scalar_one_or_none()
+        if vendor:
+            details.update({"vendor_id": vendor.id, "company": vendor.company, "verified_sender": True})
+            row.email = vendor.email
+            row.name = row.name or vendor.name
+            row.phone = row.phone or vendor.phone
+    row.details_json = json.dumps(details)
     db.add(row)
     await db.commit()
     await db.refresh(row)

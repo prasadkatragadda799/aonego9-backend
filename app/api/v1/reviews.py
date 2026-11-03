@@ -13,6 +13,28 @@ from app.schemas.review import ReviewCreate, ReviewListOut, ReviewOut, ReviewPub
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
 
+async def _named(db: AsyncSession, reviews) -> list[ReviewOut]:
+    """Reviews with the author's and vendor's display names, so the vendor
+    and admin consoles do not show raw ids."""
+    author_ids = {r.author_id for r in reviews}
+    vendor_ids = {r.vendor_id for r in reviews}
+    authors: dict[str, str] = {}
+    vendors: dict[str, str] = {}
+    if author_ids:
+        rows = await db.execute(select(User).where(User.id.in_(author_ids)))
+        authors = {u.id: u.name for u in rows.scalars().all()}
+    if vendor_ids:
+        rows = await db.execute(select(Vendor).where(Vendor.id.in_(vendor_ids)))
+        vendors = {v.id: (v.company or v.name) for v in rows.scalars().all()}
+    out = []
+    for r in reviews:
+        o = ReviewOut.model_validate(r)
+        o.author_name = authors.get(r.author_id, "Client")
+        o.vendor_name = vendors.get(r.vendor_id, "")
+        out.append(o)
+    return out
+
+
 @router.get("/public/{vendor_id}", response_model=ReviewPublicListOut)
 async def list_public_reviews(
     vendor_id: str,
@@ -66,7 +88,7 @@ async def list_vendor_reviews(
     all_reviews = all_result.scalars().all()
     avg = sum(r.stars for r in all_reviews) / len(all_reviews) if all_reviews else 0.0
     paginated = await db.execute(q.order_by(Review.date.desc()).offset((page - 1) * page_size).limit(page_size))
-    items = [ReviewOut.model_validate(r) for r in paginated.scalars().all()]
+    items = await _named(db, paginated.scalars().all())
     return ReviewListOut(items=items, total=len(all_reviews), average_rating=avg)
 
 
@@ -85,7 +107,7 @@ async def admin_list_reviews(
     avg = sum(r.stars for r in all_reviews) / len(all_reviews) if all_reviews else 0.0
     paginated = await db.execute(q.order_by(Review.date.desc()).offset((page - 1) * page_size).limit(page_size))
     return ReviewListOut(
-        items=[ReviewOut.model_validate(r) for r in paginated.scalars().all()],
+        items=await _named(db, paginated.scalars().all()),
         total=len(all_reviews),
         average_rating=avg,
     )

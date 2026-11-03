@@ -17,7 +17,7 @@ from app.core.security import (
 from app.models.user import ApprovalStatus, User, UserRole
 from app.models.vendor import Vendor
 from app.services.subscription_service import activate_vendor_subscription, default_vendor_plan
-from app.services.otp_service import send_otp, verify_otp
+from app.services.otp_service import normalize_phone, send_otp, verify_otp
 from app.utils.admin_scope import assert_admin_city_login
 from app.schemas.auth import (
     LoginRequest,
@@ -50,8 +50,44 @@ async def otp_verify(body: OtpVerifyRequest, db: AsyncSession = Depends(get_db))
 
 @router.post("/register/user", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register_user(body: RegisterUserRequest, db: AsyncSession = Depends(get_db)):
-    existing = await db.execute(select(User).where(User.email == body.email))
-    if existing.scalar_one_or_none():
+    existing = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
+    if existing and existing.is_guest:
+        # An inquiry made while signed out created this account. Claiming it
+        # needs proof of the inquiry's phone — the email alone is not proof.
+        guest_phone = normalize_phone(existing.phone or "")
+        if not guest_phone:
+            raise HTTPException(
+                status_code=409,
+                detail="This email has an earlier inquiry without a phone number — contact the AOneGo9 desk to claim it.",
+            )
+        if normalize_phone(body.phone) != guest_phone:
+            ending = guest_phone[-4:] if guest_phone else ""
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "GUEST_CLAIM: You have earlier inquiries under this email. "
+                    f"Enter the phone number you used (ending {ending}) and verify it with an OTP to claim the account."
+                ),
+            )
+        if not body.phone_otp.strip() or not await verify_otp(db, phone=body.phone, purpose="register", code=body.phone_otp):
+            raise HTTPException(
+                status_code=409 if not body.phone_otp.strip() else 400,
+                detail="GUEST_CLAIM: Verify your phone with the OTP we send to claim this account."
+                if not body.phone_otp.strip()
+                else "Invalid or expired phone OTP",
+            )
+        existing.name = body.name or existing.name
+        existing.city = body.city or existing.city
+        existing.password_hash = hash_password(body.password)
+        existing.is_guest = False
+        existing.verified = True
+        await db.commit()
+        return TokenResponse(
+            access_token=create_access_token(existing.id, "user"),
+            refresh_token=create_refresh_token(existing.id, "user"),
+            role="user",
+        )
+    if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
     user = User(
         name=body.name,
@@ -130,8 +166,9 @@ async def login_vendor(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     vendor = result.scalar_one_or_none()
     if not vendor or not verify_password(body.password, vendor.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    if vendor.status != ApprovalStatus.approved:
-        raise HTTPException(status_code=403, detail="Vendor account is pending approval or suspended")
+    # Pending / rejected / suspended vendors still sign in to their console to
+    # complete their profile or request a review; the marketplace only lists
+    # approved vendors, so this exposes nothing publicly.
     vendor.last_login_at = datetime.now(timezone.utc)
     await db.commit()
     return TokenResponse(

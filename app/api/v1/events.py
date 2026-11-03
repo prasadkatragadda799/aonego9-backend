@@ -3,6 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.utils.enums import parse_enum
 from app.core.deps import get_current_admin
 from app.models.event import EventStatus, PlatformEvent
 from app.models.user import User
@@ -37,7 +38,7 @@ async def admin_list_events(
 ):
     q = select(PlatformEvent)
     if status:
-        q = q.where(PlatformEvent.status == EventStatus(status))
+        q = q.where(PlatformEvent.status == parse_enum(EventStatus, status))
     total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
     result = await db.execute(q.order_by(PlatformEvent.date.asc()).offset((page - 1) * page_size).limit(page_size))
     return EventListOut(items=result.scalars().all(), total=total)
@@ -50,8 +51,11 @@ async def create_event(body: PlatformEventCreate, db: AsyncSession = Depends(get
         category=body.category,
         city=body.city,
         date=body.date,
-        status=EventStatus(body.status),
+        status=parse_enum(EventStatus, body.status),
         on_poster=body.on_poster,
+        venue=body.venue,
+        description=body.description,
+        image_url=body.image_url,
     )
     db.add(event)
     await db.commit()
@@ -72,7 +76,7 @@ async def update_event(
         raise HTTPException(status_code=404, detail="Event not found")
     updates = body.model_dump(exclude_none=True)
     if "status" in updates:
-        updates["status"] = EventStatus(updates["status"])
+        updates["status"] = parse_enum(EventStatus, updates["status"])
     for field, value in updates.items():
         setattr(event, field, value)
     await db.commit()

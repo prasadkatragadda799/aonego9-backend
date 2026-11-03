@@ -13,6 +13,7 @@ from app.models.newsletter import NewsletterIssue, NewsletterContribution
 from app.models.advance_request import AdvancePaymentRequest
 from app.models.phone_otp import PhoneOtp
 from app.models.directory import AdCreative, Session, LogoPartner, TeamMember, SocialAccount, Lead
+from app.models.platform_setting import PlatformSetting
 
 __all__ = [
     "User", "UserRole", "ApprovalStatus",
@@ -28,4 +29,5 @@ __all__ = [
     "NewsletterIssue", "NewsletterContribution",
     "AdvancePaymentRequest", "PhoneOtp",
     "AdCreative", "Session", "LogoPartner", "TeamMember", "SocialAccount", "Lead",
+    "PlatformSetting",
 ]

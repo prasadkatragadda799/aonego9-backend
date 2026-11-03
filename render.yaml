@@ -32,9 +32,15 @@ services:
       - key: REFRESH_TOKEN_EXPIRE_DAYS
         value: "30"
       - key: CORS_ORIGINS
-        # Comma-separated list of the deployed frontend origins — replace
-        # with your actual Vercel/production URLs before going live.
-        value: "*"
+        # REQUIRED: comma-separated deployed frontend origins, e.g.
+        # https://aonego9-user.vercel.app,https://aonego9-vendor.vercel.app,https://aonego9-superadmin.vercel.app
+        # Set it in the Render dashboard (Environment tab). "*" is rejected
+        # in production by app/core/config.py and the service will not start.
+        sync: false
+      - key: OTP_DEBUG
+        # Must be false in production (config.py refuses to start otherwise);
+        # the default is true for local development.
+        value: "false"
       - key: ADMIN_EMAIL
         value: admin@aonego9.com
       - key: ADMIN_PASSWORD

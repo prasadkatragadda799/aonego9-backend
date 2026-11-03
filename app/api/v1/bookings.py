@@ -4,12 +4,15 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.services.ledger import record_advance, record_completion, record_refund
+from app.utils.enums import parse_enum
 from app.core.deps import get_any_authenticated, get_current_admin, get_current_user, get_current_vendor
 from app.models.advance_request import AdvancePaymentRequest
 from app.models.booking import Booking, BookingSource, BookingStatus
 from app.models.user import User
 from app.models.vendor import Vendor
 from app.schemas.booking import (
+    BookingQuote,
     AdvancePayment,
     AdvanceRequestOut,
     AdvanceReview,
@@ -67,6 +70,18 @@ def _to_out(b: Booking, client_name: str = "", vendor_name: str = "") -> Booking
         notes=b.notes,
         created_at=b.created_at,
     )
+
+
+async def _with_contacts(db: AsyncSession, outs: list[BookingOut]) -> list[BookingOut]:
+    """Attach each client's email and phone for the vendor/desk views — the
+    vendor console's Call / WhatsApp / Email actions read these."""
+    ids = {o.client_id for o in outs}
+    if ids:
+        rows = await db.execute(select(User.id, User.email, User.phone).where(User.id.in_(ids)))
+        people = {r.id: (r.email or "", r.phone or "") for r in rows}
+        for o in outs:
+            o.client_email, o.client_phone = people.get(o.client_id, ("", ""))
+    return outs
 
 
 async def _name_lookups(db: AsyncSession, bookings: list[Booking]) -> tuple[dict[str, str], dict[str, str]]:
@@ -143,7 +158,7 @@ async def create_booking(
         amount=body.amount,
         location=body.location,
         notes=body.notes,
-        source=BookingSource(body.source),
+        source=parse_enum(BookingSource, body.source, "source"),
         inquiry_ref=body.inquiry_ref,
     )
     db.add(booking)
@@ -163,14 +178,14 @@ async def list_vendor_bookings(
 ):
     q = select(Booking).where(Booking.vendor_id == vendor.id)
     if status:
-        q = q.where(Booking.status == BookingStatus(status))
+        q = q.where(Booking.status == parse_enum(BookingStatus, status))
     total_result = await db.execute(select(func.count()).select_from(q.subquery()))
     total = total_result.scalar_one()
     result = await db.execute(q.order_by(Booking.date.desc()).offset((page - 1) * page_size).limit(page_size))
     bookings = result.scalars().all()
     client_names, vendor_names = await _name_lookups(db, bookings)
     return BookingListOut(
-        items=[_to_out(b, client_names.get(b.client_id, ""), vendor_names.get(b.vendor_id, "")) for b in bookings],
+        items=await _with_contacts(db, [_to_out(b, client_names.get(b.client_id, ""), vendor_names.get(b.vendor_id, "")) for b in bookings]),
         total=total,
         page=page,
         page_size=page_size,
@@ -196,7 +211,7 @@ async def vendor_calendar(
     )
     bookings = result.scalars().all()
     client_names, vendor_names = await _name_lookups(db, bookings)
-    return [_to_out(b, client_names.get(b.client_id, ""), vendor_names.get(b.vendor_id, "")) for b in bookings]
+    return await _with_contacts(db, [_to_out(b, client_names.get(b.client_id, ""), vendor_names.get(b.vendor_id, "")) for b in bookings])
 
 
 @router.get("/me", response_model=BookingListOut)
@@ -237,16 +252,16 @@ async def admin_list_bookings(
     elif city:
         q = q.join(Vendor, Booking.vendor_id == Vendor.id).where(Vendor.city.ilike(f"%{city.strip()}%"))
     if status:
-        q = q.where(Booking.status == BookingStatus(status))
+        q = q.where(Booking.status == parse_enum(BookingStatus, status))
     if source:
-        q = q.where(Booking.source == BookingSource(source))
+        q = q.where(Booking.source == parse_enum(BookingSource, source, "source"))
     total_result = await db.execute(select(func.count()).select_from(q.subquery()))
     total = total_result.scalar_one()
     result = await db.execute(q.order_by(Booking.date.desc()).offset((page - 1) * page_size).limit(page_size))
     bookings = result.scalars().all()
     client_names, vendor_names = await _name_lookups(db, bookings)
     return BookingListOut(
-        items=[_to_out(b, client_names.get(b.client_id, ""), vendor_names.get(b.vendor_id, "")) for b in bookings],
+        items=await _with_contacts(db, [_to_out(b, client_names.get(b.client_id, ""), vendor_names.get(b.vendor_id, "")) for b in bookings]),
         total=total,
         page=page,
         page_size=page_size,
@@ -270,7 +285,7 @@ async def get_booking(
     if role == "vendor" and booking.vendor_id != sub:
         raise HTTPException(status_code=403, detail="Not your booking")
     client_names, vendor_names = await _name_lookups(db, [booking])
-    return _to_out(booking, client_names.get(booking.client_id, ""), vendor_names.get(booking.vendor_id, ""))
+    return (await _with_contacts(db, [_to_out(booking, client_names.get(booking.client_id, ""), vendor_names.get(booking.vendor_id, ""))]))[0]
 
 
 @router.put("/{booking_id}/status", response_model=BookingOut)
@@ -290,7 +305,7 @@ async def update_booking_status(
         raise HTTPException(status_code=403, detail="Not your booking")
     if role == "vendor" and booking.vendor_id != sub:
         raise HTTPException(status_code=403, detail="Not your booking")
-    new_status = BookingStatus(body.status)
+    new_status = parse_enum(BookingStatus, body.status)
     if role == "admin":
         allowed = _VALID_STATUS_TRANSITIONS.get(booking.status, [])
     else:
@@ -299,10 +314,42 @@ async def update_booking_status(
         raise HTTPException(status_code=422, detail=f"Cannot transition from {booking.status.value} to {body.status}")
     booking.status = new_status
     booking.updated_at = datetime.now(timezone.utc)
+    client_names, vendor_names = await _name_lookups(db, [booking])
+    client_name = client_names.get(booking.client_id, "")
+    if new_status == BookingStatus.completed:
+        await record_completion(db, booking, client_name)
+    elif new_status == BookingStatus.cancelled:
+        await record_refund(db, booking, client_name)
+    await db.commit()
+    await db.refresh(booking)
+    return (await _with_contacts(db, [_to_out(booking, client_names.get(booking.client_id, ""), vendor_names.get(booking.vendor_id, ""))]))[0]
+
+
+@router.put("/{booking_id}/quote", response_model=BookingOut)
+async def set_booking_quote(
+    booking_id: str,
+    body: BookingQuote,
+    vendor: Vendor = Depends(get_current_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    """The vendor prices an inquiry. Inquiries arrive with amount 0 — without
+    this a booking could never be completed for money or checked against an
+    advance."""
+    booking = (await db.execute(
+        select(Booking).where(Booking.id == booking_id, Booking.vendor_id == vendor.id)
+    )).scalar_one_or_none()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.status not in (BookingStatus.requested, BookingStatus.confirmed, BookingStatus.in_progress):
+        raise HTTPException(status_code=409, detail=f"A {booking.status.value} booking can no longer be re-priced")
+    if body.amount < booking.advance_paid:
+        raise HTTPException(status_code=422, detail=f"The quote cannot be below the advance already paid ({booking.advance_paid:.0f})")
+    booking.amount = body.amount
+    booking.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(booking)
     client_names, vendor_names = await _name_lookups(db, [booking])
-    return _to_out(booking, client_names.get(booking.client_id, ""), vendor_names.get(booking.vendor_id, ""))
+    return (await _with_contacts(db, [_to_out(booking, client_names.get(booking.client_id, ""), vendor_names.get(booking.vendor_id, ""))]))[0]
 
 
 @router.post("/advance", response_model=AdvanceRequestOut, status_code=201)
@@ -432,6 +479,8 @@ async def admin_approve_advance(
         if scoped and vcity and scoped not in vcity and vcity not in scoped:
             raise HTTPException(status_code=403, detail="Not in your city scope")
     booking.advance_paid += row.amount
+    client_names_adv, _ = await _name_lookups(db, [booking])
+    await record_advance(db, booking, row.amount, client_names_adv.get(booking.client_id, ""))
     row.status = "approved"
     row.admin_note = body.admin_note
     row.reviewed_at = datetime.now(timezone.utc)

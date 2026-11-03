@@ -3,6 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.utils.enums import parse_enum
 from app.core.deps import get_current_admin, get_current_vendor
 from app.models.user import ApprovalStatus, User
 from app.models.vendor import ServicePackage, PortfolioItem, TalentMember, Vendor
@@ -390,7 +391,7 @@ async def admin_list_vendors(
     if scoped_city:
         q = q.where(Vendor.city.ilike(f"%{scoped_city}%"))
     if status:
-        q = q.where(Vendor.status == ApprovalStatus(status))
+        q = q.where(Vendor.status == parse_enum(ApprovalStatus, status))
     if category:
         q = q.where(Vendor.category == category)
     total_result = await db.execute(select(func.count()).select_from(q.subquery()))
@@ -448,7 +449,7 @@ async def admin_update_vendor_status(
     vendor = result.scalar_one_or_none()
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
-    vendor.status = ApprovalStatus(body.status)
+    vendor.status = parse_enum(ApprovalStatus, body.status)
     await db.commit()
     await db.refresh(vendor)
     return vendor_to_out(vendor)

@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel, EmailStr
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, EmailStr
 
 
 class NewsletterIssueOut(BaseModel):
@@ -85,14 +85,25 @@ class NewsletterSubscribeIn(BaseModel):
 
 
 class NewsletterContributeIn(BaseModel):
-    name: str
-    email: EmailStr
-    phone: str = ""
+    """A story pitch. Accepts both field spellings in use: the user app's
+    contribute form sends author_name / author_email / author_phone / title /
+    body, older clients send name / email / phone / headline / story. Before
+    this, the user app's form failed validation on every submission."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = Field(validation_alias=AliasChoices("name", "author_name"), min_length=1)
+    email: EmailStr = Field(validation_alias=AliasChoices("email", "author_email"))
+    phone: str = Field(default="", validation_alias=AliasChoices("phone", "author_phone"))
     city: str = ""
     organisation: str = ""
-    headline: str
-    story: str = ""
+    headline: str = Field(validation_alias=AliasChoices("headline", "title"), min_length=1)
+    story: str = Field(default="", validation_alias=AliasChoices("story", "body"))
     credentials_url: str = ""
+    # Extra context the desk needs; folded into the stored story.
+    role: str = ""
+    kind: str = ""
+    image_url: str = ""
 
 
 class NewsletterContributionOut(BaseModel):

@@ -25,6 +25,8 @@ class RegisterUserRequest(BaseModel):
     phone: str = ""
     city: str = ""
     role: str = "client"
+    # Only needed to claim a guest account created by an earlier inquiry.
+    phone_otp: str = ""
 
 
 class RegisterVendorRequest(BaseModel):

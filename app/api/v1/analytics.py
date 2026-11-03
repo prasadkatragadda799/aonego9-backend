@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.services.ledger import settle_due_earnings
 from app.core.deps import get_current_admin, get_current_vendor
 from app.models.booking import Booking, BookingStatus
 from app.models.notification import Notification
@@ -57,12 +58,18 @@ async def admin_dashboard(db: AsyncSession = Depends(get_db)):
             )
         )
     ).scalar_one()
-    total_revenue = (
-        await db.execute(
-            select(func.coalesce(func.sum(PaymentTxn.amount), 0)).where(PaymentTxn.type == TxnType.booking)
-        )
-    ).scalar_one()
-    commission = total_revenue * 0.08  # platform's ~8% blended commission
+    async def _sum(kind: TxnType, since: datetime | None = None) -> float:
+        q = select(func.coalesce(func.sum(PaymentTxn.amount), 0)).where(PaymentTxn.type == kind)
+        if since is not None:
+            q = q.where(PaymentTxn.date >= since)
+        return float((await db.execute(q)).scalar_one())
+
+    # Straight off the ledger: completed-booking value, and the commission
+    # actually booked on each completion at the rate in force then.
+    now = datetime.now(timezone.utc)
+    total_revenue = await _sum(TxnType.booking)
+    monthly_revenue = await _sum(TxnType.booking, datetime(now.year, now.month, 1, tzinfo=timezone.utc))
+    commission = await _sum(TxnType.commission)
     disputes = (
         await db.execute(select(func.count(Booking.id)).where(Booking.status == BookingStatus.disputed))
     ).scalar_one()
@@ -74,8 +81,8 @@ async def admin_dashboard(db: AsyncSession = Depends(get_db)):
         total_bookings=total_bookings,
         active_bookings=active_bookings,
         disputes=disputes,
-        total_revenue=float(total_revenue),
-        monthly_revenue=float(total_revenue) / 6,
+        total_revenue=total_revenue,
+        monthly_revenue=monthly_revenue,
         commission_earned=commission,
     )
 
@@ -116,6 +123,7 @@ async def vendor_dashboard(
     vendor: Vendor = Depends(get_current_vendor),
     db: AsyncSession = Depends(get_db),
 ):
+    await settle_due_earnings(db, vendor.id)
     bookings_q = select(Booking).where(Booking.vendor_id == vendor.id)
     all_bookings = (await db.execute(bookings_q)).scalars().all()
 

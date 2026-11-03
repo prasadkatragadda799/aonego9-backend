@@ -12,6 +12,8 @@ class ReviewOut(BaseModel):
     reply: str | None
     flagged: bool
     date: datetime
+    author_name: str = ""
+    vendor_name: str = ""
 
     model_config = {"from_attributes": True}
 

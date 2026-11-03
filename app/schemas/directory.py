@@ -99,6 +99,9 @@ class SessionCreate(BaseModel):
     seats_left: int = 0
     blurb: str = ""
     emoji: str = "🎓"
+    # The console's "Published" switch — dropped before, so every new session
+    # was created hidden regardless of what the desk chose.
+    published: bool = False
 
 
 class SessionUpdate(BaseModel):
@@ -116,6 +119,7 @@ class SessionUpdate(BaseModel):
     seats_left: int | None = None
     blurb: str | None = None
     emoji: str | None = None
+    published: bool | None = None
 
 
 class SessionToggle(BaseModel):

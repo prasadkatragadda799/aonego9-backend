@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.services.ledger import record_subscription
 from app.core.deps import get_any_authenticated, get_current_admin
 from app.models.subscription import (
     BillingEntry,
@@ -307,6 +308,14 @@ async def admin_approve_request(request_id: str, body: SubscriptionReviewIn, db:
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
+    party = ""
+    if req.requester_type == "vendor":
+        v = (await db.execute(select(Vendor).where(Vendor.id == req.vendor_id))).scalar_one_or_none()
+        party = (v.company or v.name) if v else ""
+    else:
+        u = (await db.execute(select(User).where(User.id == req.user_id))).scalar_one_or_none()
+        party = u.name if u else ""
+    await record_subscription(db, party, req.amount or plan.price, plan.name)
     if req.requester_type == "vendor":
         await activate_vendor_subscription(db, vendor_id=req.vendor_id, plan=plan, create_billing=plan.price > 0)
     else:

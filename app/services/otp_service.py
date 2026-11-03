@@ -64,3 +64,11 @@ async def verify_otp(db: AsyncSession, *, phone: str, purpose: str, code: str) -
     await db.execute(delete(PhoneOtp).where(PhoneOtp.phone == normalized, PhoneOtp.purpose == purpose))
     await db.commit()
     return True
+
+
+def normalize_phone(phone: str) -> str:
+    """Public form of the OTP phone normalisation, for comparing numbers."""
+    try:
+        return _normalize_phone(phone)
+    except ValueError:
+        return ""

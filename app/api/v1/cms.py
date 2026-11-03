@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -103,7 +104,17 @@ async def list_categories(db: AsyncSession = Depends(get_db)):
 
 @router.post("/categories", response_model=CategoryOut, status_code=201, dependencies=[Depends(get_current_admin)])
 async def create_category(body: CategoryCreate, db: AsyncSession = Depends(get_db)):
-    cat = Category(**body.model_dump())
+    data = body.model_dump()
+    data["name"] = data["name"].strip()
+    if not data["name"]:
+        raise HTTPException(status_code=422, detail="Category name is required")
+    data["slug"] = (data["slug"] or "").strip() or re.sub(r"[^a-z0-9]+", "-", data["name"].lower()).strip("-")
+    clash = await db.execute(
+        select(Category).where((Category.name == data["name"]) | (Category.slug == data["slug"]))
+    )
+    if clash.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail=f"A category called {data['name']} already exists")
+    cat = Category(**data)
     db.add(cat)
     await db.commit()
     await db.refresh(cat)

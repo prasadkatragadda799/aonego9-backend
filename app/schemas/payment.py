@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PaymentTxnOut(BaseModel):
@@ -30,7 +30,7 @@ class EarningTxnOut(BaseModel):
 
 class PayoutRequest(BaseModel):
     vendor_id: str
-    amount: float
+    amount: float = Field(gt=0, description="Positive amount in INR")
     method: str = "Bank Transfer"
 
 

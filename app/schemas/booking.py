@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class BookingOut(BaseModel):
@@ -20,6 +20,9 @@ class BookingOut(BaseModel):
     location: str
     notes: str
     created_at: datetime
+    # The client's contact, so the vendor can call/email about the job.
+    client_email: str = ""
+    client_phone: str = ""
 
     model_config = {"from_attributes": True}
 
@@ -48,6 +51,12 @@ class BookingCreate(BaseModel):
 
 class BookingStatusUpdate(BaseModel):
     status: str
+
+
+class BookingQuote(BaseModel):
+    """The vendor's price for an inquiry booking (inquiries arrive at 0)."""
+
+    amount: float = Field(gt=0, le=100_000_000)
 
 
 class AdvancePayment(BaseModel):

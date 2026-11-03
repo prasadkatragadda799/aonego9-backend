@@ -16,6 +16,24 @@ from app.schemas.support import (
 router = APIRouter(prefix="/support", tags=["support"])
 
 
+async def _with_requesters(db: AsyncSession, tickets) -> list[SupportTicketOut]:
+    """Attach the requester's name and email, so the desk sees who wrote in
+    and can reply, instead of a bare user id."""
+    ids = {t.requester_id for t in tickets}
+    people: dict[str, User] = {}
+    if ids:
+        rows = await db.execute(select(User).where(User.id.in_(ids)))
+        people = {u.id: u for u in rows.scalars().all()}
+    out = []
+    for t in tickets:
+        o = SupportTicketOut.model_validate(t)
+        u = people.get(t.requester_id)
+        if u:
+            o.requester_name, o.requester_email = u.name, u.email
+        out.append(o)
+    return out
+
+
 @router.post("", response_model=SupportTicketOut, status_code=201)
 async def create_ticket(
     body: SupportTicketCreate,
@@ -31,7 +49,16 @@ async def create_ticket(
     db.add(ticket)
     await db.commit()
     await db.refresh(ticket)
-    return ticket
+    return (await _with_requesters(db, [ticket]))[0]
+
+
+@router.get("/me", response_model=list[SupportTicketOut])
+async def my_tickets(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """The signed-in client's own tickets, newest first, for the user app's Help panel."""
+    rows = await db.execute(
+        select(SupportTicket).where(SupportTicket.requester_id == current_user.id).order_by(SupportTicket.created_at.desc()).limit(50)
+    )
+    return await _with_requesters(db, rows.scalars().all())
 
 
 @router.get("/admin", response_model=SupportTicketListOut, dependencies=[Depends(get_current_admin)])
@@ -52,7 +79,8 @@ async def admin_list_tickets(
         await db.execute(select(func.count(SupportTicket.id)).where(SupportTicket.status == "open"))
     ).scalar_one()
     paginated = await db.execute(q.order_by(SupportTicket.created_at.desc()).offset((page - 1) * page_size).limit(page_size))
-    return SupportTicketListOut(items=paginated.scalars().all(), total=total, open_count=open_count)
+    items = await _with_requesters(db, paginated.scalars().all())
+    return SupportTicketListOut(items=items, total=total, open_count=open_count)
 
 
 @router.get("/admin/{ticket_id}", response_model=SupportTicketOut, dependencies=[Depends(get_current_admin)])
@@ -61,7 +89,7 @@ async def get_ticket(ticket_id: str, db: AsyncSession = Depends(get_db)):
     ticket = result.scalar_one_or_none()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    return ticket
+    return (await _with_requesters(db, [ticket]))[0]
 
 
 @router.put("/admin/{ticket_id}", response_model=SupportTicketOut)
@@ -80,4 +108,4 @@ async def update_ticket(
         ticket.priority = body.priority
     await db.commit()
     await db.refresh(ticket)
-    return ticket
+    return (await _with_requesters(db, [ticket]))[0]

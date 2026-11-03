@@ -45,7 +45,7 @@ class CategoryOut(BaseModel):
 
 class CategoryCreate(BaseModel):
     name: str
-    slug: str
+    slug: str = ""  # derived from the name when omitted
     icon: str = ""
     active: bool = True
     sort_order: int = 0
