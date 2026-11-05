@@ -21,6 +21,7 @@ from app.schemas.booking import (
     BookingOut,
     BookingStatusUpdate,
 )
+from app.services.storage_service import normalize_image_reference
 from app.utils.admin_scope import vendor_city_clause
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
@@ -378,11 +379,14 @@ async def request_advance(
     )
     if pending.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="An advance request is already pending for this booking")
+    receipt = await normalize_image_reference(
+        db, body.receipt_image.strip(), folder="aonego9/receipts"
+    )
     row = AdvancePaymentRequest(
         booking_id=body.booking_id,
         user_id=current_user.id,
         amount=body.amount,
-        receipt_image=body.receipt_image.strip(),
+        receipt_image=receipt,
         status="pending",
     )
     db.add(row)

@@ -23,10 +23,8 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@aonego9.com"
     ADMIN_PASSWORD: str = "demo1234"
 
-    # Cloudinary — required for persistent image uploads (receipts, avatars, portfolio).
-    CLOUDINARY_CLOUD_NAME: str = ""
-    CLOUDINARY_API_KEY: str = ""
-    CLOUDINARY_API_SECRET: str = ""
+    # Public URL of this API — used for image links served from Postgres (Render: your .onrender.com URL).
+    PUBLIC_API_BASE_URL: str = ""
 
     # When true (or non-production), OTP send endpoint returns debug_code in response.
     OTP_DEBUG: bool = True
@@ -55,6 +53,15 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() == "production"
 
+    @property
+    def public_api_base_url(self) -> str:
+        explicit = self.PUBLIC_API_BASE_URL.strip()
+        if explicit:
+            return explicit.rstrip("/")
+        if not self.is_production:
+            return "http://127.0.0.1:8000"
+        return ""
+
     @model_validator(mode="after")
     def _guard_production_config(self) -> "Settings":
         # Fail loudly at startup instead of leaking the local-dev defaults
@@ -80,6 +87,10 @@ class Settings(BaseSettings):
                 raise RuntimeError("OTP_DEBUG must be false in production.")
             if self.CORS_ORIGINS.strip() == "*":
                 raise RuntimeError("Set CORS_ORIGINS to explicit frontend URLs in production.")
+            if not self.PUBLIC_API_BASE_URL.strip():
+                raise RuntimeError(
+                    "Set PUBLIC_API_BASE_URL to your backend URL in production (needed for uploaded images)."
+                )
         return self
 
 

@@ -49,9 +49,7 @@ services:
         # (Environment tab). The account is auto-created on first boot
         # with whatever's set here; falls back to "demo1234" if unset.
         sync: false
-      - key: CLOUDINARY_CLOUD_NAME
-        sync: false
-      - key: CLOUDINARY_API_KEY
-        sync: false
-      - key: CLOUDINARY_API_SECRET
+      # Images stored in Postgres; this URL is returned to the Flutter apps.
+      - key: PUBLIC_API_BASE_URL
+        # Set to your service URL, e.g. https://aonego9-backend.onrender.com
         sync: false

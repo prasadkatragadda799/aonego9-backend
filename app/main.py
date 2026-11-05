@@ -37,6 +37,6 @@ async def on_startup() -> None:
 
 @app.get("/health")
 async def health():
-    from app.services.cloudinary_service import is_configured
+    from app.services.storage_service import is_configured
 
-    return {"status": "ok", "uploads": is_configured()}
+    return {"status": "ok", "uploads": is_configured(), "storage": "postgres"}

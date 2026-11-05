@@ -17,7 +17,7 @@ from app.models.subscription import (
 )
 from app.models.user import User
 from app.models.vendor import Vendor
-from app.services.cloudinary_service import normalize_image_reference
+from app.services.storage_service import normalize_image_reference
 from app.schemas.subscription import (
     AdminAssignSubscriptionIn,
     BillingEntryOut,
@@ -124,7 +124,9 @@ async def request_subscription(
         plan_id=plan.id,
         plan_name=plan.name,
         amount=plan.price,
-        receipt_image=normalize_image_reference(body.receipt_image, folder="aonego9/receipts"),
+        receipt_image=await normalize_image_reference(
+            db, body.receipt_image, folder="aonego9/receipts"
+        ),
         status="pending",
     )
     db.add(req)

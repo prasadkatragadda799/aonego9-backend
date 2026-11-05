@@ -8,6 +8,7 @@ from app.api.v1 import (
     browse,
     cms,
     events,
+    media,
     messages,
     notifications,
     payments,
@@ -37,5 +38,6 @@ api_router.include_router(analytics.router)
 api_router.include_router(support.router)
 api_router.include_router(browse.router)
 api_router.include_router(uploads.router)
+api_router.include_router(media.router)
 api_router.include_router(sessions.router)
 api_router.include_router(admin_settings.router)
